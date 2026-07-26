@@ -1,14 +1,16 @@
-import React from 'react';
 import { Outlet } from 'react-router-dom';
 import AdminSidebar from '../components/AdminSidebar';
 
 export default function AdminLayout() {
   return (
-    <div className="min-h-screen relative md:pl-72 pt-16 md:pt-0">
+    // Lebar penuh: panel admin butuh ruang untuk tabel, tidak dijepit lebar ponsel.
+    <div className="h-[100dvh] overflow-y-auto thin-scrollbar text-white">
       <AdminSidebar />
-      <div className="p-4 md:p-8">
-        <Outlet />
-      </div>
+      <main className="md:pl-72 pt-20 md:pt-0">
+        <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
+          <Outlet />
+        </div>
+      </main>
     </div>
   );
 }

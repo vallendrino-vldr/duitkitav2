@@ -1,42 +1,48 @@
-import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Home, CreditCard, Plus, PiggyBank, Settings } from 'lucide-react';
 
-export default function BottomNav() {
-  const navItems = [
-    { to: '/dashboard', icon: Home, label: 'Home' },
-    { to: '/debts', icon: CreditCard, label: 'Debts' },
-    { to: '/add', icon: Plus, label: 'Add', isFab: true },
-    { to: '/savings', icon: PiggyBank, label: 'Savings' },
-    { to: '/settings', icon: Settings, label: 'Settings' },
-  ];
+/**
+ * Tingkatan lapisan (z-index) aplikasi — dipatuhi semua komponen:
+ *   z-40  navbar bawah  <- di sini
+ *   z-60  lembar/modal
+ *   z-70  overlay layar penuh (kamera, mikrofon)
+ *   z-80  layar kunci PIN
+ * Dulu navbar dan overlay kamera sama-sama z-50, dan karena navbar digambar
+ * paling akhir, dialah yang menang — tombol rana jadi tertimbun di bawahnya.
+ */
+const navItems = [
+  { to: '/dashboard', icon: Home, label: 'Beranda' },
+  { to: '/debts', icon: CreditCard, label: 'Hutang' },
+  { to: '/add', icon: Plus, label: 'Tambah', isFab: true },
+  { to: '/savings', icon: PiggyBank, label: 'Nabung' },
+  { to: '/settings', icon: Settings, label: 'Atur' },
+];
 
+export default function BottomNav() {
   return (
-    <div className="fixed bottom-0 w-full z-50 px-4 pb-6 pt-2 pointer-events-none">
-      <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl flex justify-between items-center px-2 py-2 pointer-events-auto">
+    <nav
+      aria-label="Navigasi utama"
+      className="absolute bottom-0 left-0 right-0 z-40 px-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pointer-events-none"
+    >
+      <div className="glass rounded-4xl flex justify-between items-center px-2 py-1.5 pointer-events-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
 
           if (item.isFab) {
             return (
-              <NavLink key={item.to} to={item.to} className="relative -top-6">
+              <NavLink key={item.to} to={item.to} aria-label={item.label} className="relative -top-6 shrink-0">
                 {({ isActive }) => (
                   <motion.div
-                    whileTap={{ scale: 0.9 }}
-                    animate={{
-                      boxShadow: isActive
-                        ? ['0px 0px 15px rgba(13,148,136,0.8)', '0px 0px 25px rgba(13,148,136,1)', '0px 0px 15px rgba(13,148,136,0.8)']
-                        : ['0px 0px 10px rgba(126,34,206,0.5)', '0px 0px 20px rgba(126,34,206,0.8)', '0px 0px 10px rgba(126,34,206,0.5)'],
-                    }}
-                    transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                    className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-xl ${
+                    whileTap={{ scale: 0.92 }}
+                    transition={{ duration: 0.15 }}
+                    className={`w-16 h-16 rounded-full flex items-center justify-center text-white border-4 border-ink-950/40 ${
                       isActive
-                        ? 'bg-gradient-to-r from-teal-400 to-teal-500'
-                        : 'bg-gradient-to-tr from-purple-500 to-purple-600'
+                        ? 'bg-gradient-to-br from-brand-400 to-brand-600 shadow-glow-brand'
+                        : 'bg-gradient-to-br from-accent-500 to-accent-700 shadow-glow-accent'
                     }`}
                   >
-                    <Icon size={32} />
+                    <Icon size={30} strokeWidth={2.5} />
                   </motion.div>
                 )}
               </NavLink>
@@ -44,26 +50,37 @@ export default function BottomNav() {
           }
 
           return (
-            <NavLink key={item.to} to={item.to} className="flex-1 flex justify-center">
+            <NavLink key={item.to} to={item.to} className="flex-1 flex justify-center min-h-[44px]">
               {({ isActive }) => (
-                <motion.div
-                  animate={isActive ? { y: [-2, 2, -2] } : { y: 0 }}
-                  transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-                  className="flex flex-col items-center justify-center py-2"
-                >
+                <div className="relative flex flex-col items-center justify-center w-full py-2 gap-0.5">
+                  {isActive && (
+                    <motion.div
+                      layoutId="active-pill"
+                      className="absolute inset-0 bg-white/15 rounded-2xl"
+                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                    />
+                  )}
                   <Icon
-                    size={24}
-                    className={`transition-colors ${isActive ? 'text-teal-400 drop-shadow-[0_0_5px_rgba(13,148,136,0.8)]' : 'text-white/50'}`}
+                    size={22}
+                    strokeWidth={isActive ? 2.5 : 2}
+                    className={`relative z-10 transition-colors duration-200 ${
+                      isActive ? 'text-brand-300' : 'text-white/70'
+                    }`}
                   />
-                  <span className={`text-[10px] mt-1 font-medium transition-colors ${isActive ? 'text-teal-400' : 'text-white/50'}`}>
+                  {/* text-white/70, bukan /50: kontras lebih aman di atas latar bergerak. */}
+                  <span
+                    className={`relative z-10 text-[11px] font-semibold transition-colors duration-200 ${
+                      isActive ? 'text-brand-300' : 'text-white/70'
+                    }`}
+                  >
                     {item.label}
                   </span>
-                </motion.div>
+                </div>
               )}
             </NavLink>
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 }

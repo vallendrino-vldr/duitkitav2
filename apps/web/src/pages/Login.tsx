@@ -1,115 +1,84 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { supabase } from '../lib/supabase'; // assume this exists for now
-import axios from 'axios'; // for api call
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthProvider';
+import { Wallet, ArrowRight } from 'lucide-react';
+import Signature from '../components/Signature';
 
 export default function Login() {
-  const [username, setUsername] = useState('');
+  // Semua hook dipanggil tanpa syarat dulu, baru boleh ada early return di bawah.
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { status } = useAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password) return toast.error('Email dan Kata Sandi wajib diisi');
     
-    if (!username || !password) {
-      toast.error('Username dan Password harus diisi');
-      return;
-    }
-
     setIsLoading(true);
-
     try {
-      // Admin Bypass
-      if (username === 'admin' && password === '123456') {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: 'admin@duitkita.com', // Using the seeded admin email
-          password: '123456',
-        });
-        if (error) throw error;
-        toast.success('Welcome Super Admin');
-        navigate('/admin');
-        return;
-      }
-
-      // Step A: Intercept and lookup email
-      // Assuming API runs on localhost:4000 for now, or relative path
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-      const { data } = await axios.post(`${apiUrl}/api/auth/lookup`, { username });
-      
-      const email = data.email;
-
-      // Step C: SignIn with Email
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-
-      toast.success('Berhasil Masuk!');
+      toast.success('Otentikasi Berhasil');
       navigate('/dashboard');
-
     } catch (error: any) {
-      console.error(error);
-      toast.error(error.response?.data?.error || error.message || 'Gagal masuk');
+      toast.error('Kredensial tidak valid atau akun belum terdaftar.');
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Sudah punya sesi? Jangan tampilkan form login lagi.
+  if (status === 'ready' || status === 'locked') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className="min-h-screen flex items-center justify-center p-4 relative z-10"
-    >
-      <div className="bg-white/10 backdrop-blur-lg border border-white/20 p-8 rounded-2xl shadow-2xl w-full max-w-md flex flex-col items-center">
-        {/* Placeholder for Logo */}
-        <div className="w-16 h-16 bg-gradient-to-tr from-purple-500 to-teal-400 rounded-full mb-4 shadow-[0_0_15px_rgba(126,34,206,0.5)] flex items-center justify-center text-2xl font-bold">
-          DK
-        </div>
-        <h2 className="text-2xl font-bold text-white mb-8 text-center tracking-wide">Masuk Duit Kita</h2>
-        
-        <form onSubmit={handleLogin} className="w-full space-y-4">
-          <div>
-            <input 
-              type="text" 
-              placeholder="Username" 
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all"
-            />
-          </div>
-          <div>
-            <input 
-              type="password" 
-              placeholder="Password" 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all"
-            />
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="min-h-screen flex items-center justify-center p-6 relative z-10">
+      <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: "easeOut" }} className="w-full max-w-md">
+        {/* backdrop-blur-xl (24px), bukan 3xl (64px): blur setebal itu membuat
+            objek 3D di latar hilang sama sekali di balik kartu. */}
+        <div className="glass p-8 sm:p-10 rounded-4xl overflow-hidden relative">
+          <div className="flex flex-col items-center mb-10 relative z-10">
+            <motion.div 
+              animate={{ rotate: 360 }} 
+              transition={{ repeat: Infinity, duration: 20, ease: "linear" }}
+              className="relative w-24 h-24 flex items-center justify-center mb-6"
+            >
+              <div className="absolute inset-0 bg-gradient-to-tr from-teal-400/20 to-purple-600/20 rounded-3xl blur-xl"></div>
+              <div className="relative bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-3xl shadow-[0_0_30px_rgba(45,212,191,0.3)]">
+                <Wallet className="text-teal-400 drop-shadow-[0_0_15px_rgba(45,212,191,1)]" size={40} strokeWidth={1.5}/>
+              </div>
+            </motion.div>
+            <h2 className="text-3xl font-semibold text-white tracking-tight">DuitKita</h2>
+            <p className="text-teal-300 text-xs mt-2 font-medium tracking-[0.2em] uppercase">Keuangan Pintar</p>
           </div>
           
-          <motion.button 
-            whileTap={{ scale: 0.95 }}
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-gradient-to-r from-teal-400 to-purple-500 text-white font-bold rounded-xl px-4 py-3 shadow-lg flex justify-center items-center mt-6 disabled:opacity-50"
-          >
-            {isLoading ? 'MEMPROSES...' : '==== MASUK SEKARANG ===='}
-          </motion.button>
-        </form>
-        
-        <div className="mt-6">
-          <Link to="/register" className="text-white/70 hover:text-white transition-colors text-sm">
-            Belum punya akun? Daftar di sini
-          </Link>
+          <form onSubmit={handleLogin} className="space-y-5 relative z-10">
+            <div>
+              <label className="text-white/70 text-[10px] font-bold uppercase tracking-widest ml-2 block mb-2">Alamat Email</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-black/20 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-white/45 focus:outline-none focus:ring-1 focus:ring-teal-400/50 focus:bg-black/40 transition-all font-light" placeholder="nama@email.com" />
+            </div>
+            <div>
+              <label className="text-white/70 text-[10px] font-bold uppercase tracking-widest ml-2 block mb-2">Kata Sandi</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-black/20 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-white/45 focus:outline-none focus:ring-1 focus:ring-teal-400/50 focus:bg-black/40 transition-all font-light" placeholder="••••••••" />
+            </div>
+            
+            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} type="submit" disabled={isLoading} className="w-full bg-white text-black font-semibold rounded-2xl px-4 py-4 shadow-[0_0_20px_rgba(255,255,255,0.2)] flex justify-center items-center mt-8 transition-all hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] disabled:opacity-50">
+              {isLoading ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></div> : <><span className="mr-2">Masuk</span><ArrowRight size={18}/></>}
+            </motion.button>
+          </form>
+          
+          <div className="mt-8 text-center relative z-10">
+            <Link className="text-white/65 hover:text-white transition-colors text-sm font-light" to="/register">Belum punya akun? <span className="text-teal-400 font-medium">Daftar sekarang</span></Link>
+          </div>
+          <Signature className="mt-6 relative z-10" />
         </div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }

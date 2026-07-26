@@ -1,16 +1,17 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useFinanceStore } from '../store/useFinanceStore';
 import { subDays, format, isSameDay } from 'date-fns';
 
 export default function CashflowChart() {
   const { transactions } = useFinanceStore();
+  const safeTransactions = transactions || [];
 
   const data = useMemo(() => {
     const last7Days = Array.from({ length: 7 }).map((_, i) => subDays(new Date(), 6 - i)).reverse();
     
     return last7Days.map(date => {
-      const dayTransactions = transactions.filter(t => 
+      const dayTransactions = safeTransactions.filter(t => 
         isSameDay(new Date(t.created_at), date)
       );
 
@@ -28,21 +29,29 @@ export default function CashflowChart() {
         expense
       };
     });
-  }, [transactions]);
+  }, [safeTransactions]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-[#0F172A]/90 backdrop-blur-md border border-white/20 p-3 rounded-xl shadow-xl">
-          <p className="text-white font-bold mb-2">{label}</p>
-          <div className="space-y-1">
-            <p className="text-teal-400 text-sm">Income: Rp {payload[0].value.toLocaleString('id-ID')}</p>
-            <p className="text-red-400 text-sm">Expense: Rp {payload[1].value.toLocaleString('id-ID')}</p>
-          </div>
+    if (!active || !payload?.length) return null;
+    // Ditelusuri, bukan diakses lewat payload[0]/payload[1]: pada hari yang cuma
+    // punya satu jenis transaksi, payload[1] itu undefined dan membaca .value
+    // darinya menjatuhkan seluruh halaman begitu kursor menyentuh grafik.
+    return (
+      <div className="glass-strong p-3 rounded-xl">
+        <p className="text-white font-bold mb-2">{label}</p>
+        <div className="space-y-1">
+          {payload.map((p: any) => (
+            <p
+              key={p.dataKey}
+              className={`text-sm ${p.dataKey === 'income' ? 'text-brand-300' : 'text-danger-400'}`}
+            >
+              {p.dataKey === 'income' ? 'Masuk' : 'Keluar'}: Rp{' '}
+              {Number(p.value ?? 0).toLocaleString('id-ID')}
+            </p>
+          ))}
         </div>
-      );
-    }
-    return null;
+      </div>
+    );
   };
 
   return (

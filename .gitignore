@@ -1,2 +1,24 @@
+# dependencies
+node_modules/
 
+# env — never commit secrets
 .env
+.env.*
+!.env.example
+
+# build output
+dist/
+build/
+.turbo/
+
+# logs
+*.log
+npm-debug.log*
+
+# setelan lokal Claude Code (berisi daftar izin personal, bukan milik proyek)
+.claude/settings.local.json
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/

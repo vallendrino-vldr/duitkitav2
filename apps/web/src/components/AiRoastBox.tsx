@@ -1,9 +1,15 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Flame, Sparkles } from 'lucide-react';
-// import axios from 'axios';
+import { api, pesanApi } from '../lib/api';
 
-export default function AiRoastBox() {
+interface AiRoastBoxProps {
+  income: number;
+  expense: number;
+  topCategory: string;
+}
+
+export default function AiRoastBox({ income, expense, topCategory }: AiRoastBoxProps) {
   const [roast, setRoast] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -12,18 +18,11 @@ export default function AiRoastBox() {
     setRoast(null);
     
     try {
-      // Mock API call to /api/roast
-      // const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-      // const { data } = await axios.post(`${apiUrl}/api/roast`, { ...aggregation });
-      
-      // Simulating network delay and Gemini response
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const mockRoast = "Bro, beli kopi harga 50k tiap hari tapi bayar kosan nunggak? Saldo sisa 100k mending buat beli indomie dari pada sok aesthetic. 💀💸";
-      setRoast(mockRoast);
+      const { data } = await api.post('/api/scan/roast', { income, expense, topCategory });
+      setRoast(data.roast);
     } catch (error) {
       console.error('Failed to get roast:', error);
-      setRoast('Gagal koneksi ke Gemini AI. Coba lagi nanti bro.');
+      setRoast(pesanApi(error, 'Gagal koneksi ke Gemini AI. Coba lagi nanti bro.'));
     } finally {
       setIsLoading(false);
     }
@@ -31,7 +30,6 @@ export default function AiRoastBox() {
 
   return (
     <div className="w-full bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-3xl p-5 shadow-2xl relative overflow-hidden">
-      {/* Decorative Flame */}
       <div className="absolute -right-4 -top-4 opacity-10">
         <Flame size={100} className="text-orange-500" />
       </div>
@@ -88,7 +86,7 @@ export default function AiRoastBox() {
             key="empty"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-white/40 text-sm text-center py-2 relative z-10"
+            className="text-white/65 text-sm text-center py-2 relative z-10"
           >
             Berani denger kenyataan pahit soal keuangan lo? 
           </motion.div>

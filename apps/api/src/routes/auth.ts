@@ -3,15 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 
 const router = Router();
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+import { config } from '../config';
 
-// Initialize Supabase with Service Role Key for admin privileges
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
+// Service Role Key: dipakai hanya di server untuk mencari email dari username.
+const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
 });
 
 router.post('/lookup', async (req, res) => {

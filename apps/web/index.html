@@ -2,13 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <!-- Strict anti-zoom / native feel meta tags -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#0F172A" />
+    <link rel="icon" type="image/png" href="/favicon-64.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- viewport-fit=cover: layar dipakai sampai ke tepi, lalu env(safe-area-inset-*)
+         di CSS yang menjaga tombol tidak tertutup poni / garis gestur.
+         maximum-scale & user-scalable SENGAJA TIDAK dipakai: mengunci cicit-jari
+         menghalangi orang dengan penglihatan terbatas membaca layar. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#09090B" />
+    <meta name="description" content="DuitKita — catat pemasukan, pengeluaran, hutang, dan target tabungan dalam satu aplikasi." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="DuitKita" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>DuitKita</title>
+    <title>DuitKita — Keuangan Pintar</title>
   </head>
   <body>
     <div id="root"></div>

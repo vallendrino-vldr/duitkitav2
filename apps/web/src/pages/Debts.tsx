@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Check, Clock, AlertCircle } from 'lucide-react';
+import { Plus, Check, Clock, AlertCircle, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { useFinanceStore } from '../store/useFinanceStore';
+import { safeMutate, pesanError } from '../lib/db';
 import { differenceInDays } from 'date-fns';
 
 export default function Debts() {
-  const { wallets, addTransactionOffline } = useFinanceStore();
+  const { wallets, fetchWallets, fetchTransactions } = useFinanceStore();
   const [debts, setDebts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedDebt, setSelectedDebt] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'HUTANG' | 'PIUTANG'>('HUTANG');
 
   const [newDebt, setNewDebt] = useState({
     title: '',
@@ -20,7 +22,7 @@ export default function Debts() {
   });
 
   const [payDebt, setPayDebt] = useState({
-    wallet_id: wallets[0]?.id || ''
+    wallet_id: ''
   });
 
   useEffect(() => {
@@ -31,10 +33,14 @@ export default function Debts() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase.from('debts').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (data) setDebts(data);
+      const data = await safeMutate<any[]>(
+        supabase.from('debts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        'Gagal memuat catatan',
+      );
+      setDebts(data ?? []);
     } catch (error) {
-      console.error(error);
+      toast.error(pesanError(error, 'Gagal memuat catatan'));
+      setDebts([]);
     } finally {
       setIsLoading(false);
     }
@@ -43,33 +49,35 @@ export default function Debts() {
   const handleCreateDebt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDebt.title || !newDebt.amount || !newDebt.due_date) {
-      toast.error('Lengkapi semua data hutang');
+      toast.error('Lengkapi semua data');
       return;
     }
 
-    const toastId = toast.loading('Menyimpan catatan hutang...');
+    const toastId = toast.loading('Menyimpan catatan...');
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) throw new Error('Not authenticated');
 
+      // Kolom `type` dan `status` sekarang nyata di database. Judul tidak lagi
+      // diberi awalan "[HUTANG] " — cara lama itu tidak bisa diindeks dan rusak
+      // begitu pengguna mengetik "[" di dalam nama.
       const debtData = {
         user_id: user.id,
-        title: newDebt.title,
+        title: newDebt.title.trim(),
         amount: Number(newDebt.amount),
         due_date: new Date(newDebt.due_date).toISOString(),
-        is_paid: false
+        type: activeTab,
+        status: 'unpaid',
       };
 
-      const { error } = await supabase.from('debts').insert(debtData);
-      if (error) throw error;
+      await safeMutate(supabase.from('debts').insert(debtData), 'Gagal mencatat');
 
-      toast.success('Hutang berhasil dicatat!', { id: toastId });
+      toast.success('Berhasil dicatat!', { id: toastId });
       setShowAddForm(false);
       setNewDebt({ title: '', amount: '', due_date: '' });
       fetchDebts();
     } catch (error) {
-      console.error(error);
-      toast.error('Gagal mencatat hutang', { id: toastId });
+      toast.error(pesanError(error, 'Gagal mencatat'), { id: toastId });
     }
   };
 
@@ -80,39 +88,43 @@ export default function Debts() {
       return;
     }
 
-    const toastId = toast.loading('Memproses pembayaran...');
+    const toastId = toast.loading('Memproses pelunasan...');
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) throw new Error('Not authenticated');
 
-      // 1. Create expense transaction
+      const isHutang = selectedDebt.type === 'HUTANG';
       const transactionData = {
         id: crypto.randomUUID(),
         user_id: user.id,
         wallet_id: payDebt.wallet_id,
-        type: 'expense' as const,
+        type: isHutang ? 'expense' : 'income', // Bayar hutang = keluar. Terima piutang = masuk.
         amount: Number(selectedDebt.amount),
-        category: 'Debt Repayment',
-        title: `Bayar Hutang: ${selectedDebt.title}`,
+        category: isHutang ? 'Bayar Hutang' : 'Terima Piutang',
+        title: `${isHutang ? 'Bayar Hutang' : 'Terima Piutang'}: ${selectedDebt.title}`,
         created_at: new Date().toISOString()
       };
 
-      await supabase.from('transactions').insert(transactionData);
-      
-      // Sync offline transaction (updates local wallet balance)
-      addTransactionOffline(transactionData as any);
+      // Transaksi dulu. Bila langkah ini gagal, safeMutate melempar dan catatan
+      // TIDAK ikut ditandai lunas — dulu keduanya bisa gagal diam-diam dan
+      // hutang tetap tampak lunas tanpa transaksi apa pun.
+      await safeMutate(
+        supabase.from('transactions').insert(transactionData),
+        'Gagal mencatat transaksi pelunasan',
+      );
 
-      // 2. Update debt status
-      await supabase.from('debts')
-        .update({ is_paid: true })
-        .eq('id', selectedDebt.id);
+      await safeMutate(
+        supabase.from('debts').update({ status: 'paid' }).eq('id', selectedDebt.id),
+        'Gagal menandai lunas',
+      );
 
-      toast.success('Hutang berhasil dilunasi!', { id: toastId });
+      await Promise.allSettled([fetchWallets(), fetchTransactions()]);
+
+      toast.success('Berhasil dilunasi!', { id: toastId });
       setSelectedDebt(null);
       fetchDebts();
     } catch (error) {
-      console.error(error);
-      toast.error('Gagal melunasi hutang', { id: toastId });
+      toast.error(pesanError(error, 'Gagal melunasi'), { id: toastId });
     }
   };
 
@@ -120,66 +132,83 @@ export default function Debts() {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
   };
 
+  const filteredDebts = debts.filter(d => d.type === activeTab);
+
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className="p-4 pt-10 pb-24 max-w-lg mx-auto relative z-10"
+      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+      className="page pb-24 relative z-10"
     >
-      <h2 className="text-2xl font-bold text-white mb-6 text-center">Catatan Hutang</h2>
+      <div className="flex flex-col items-center mb-8">
+        <motion.div 
+          animate={{ y: [0, -10, 0], scale: [1, 1.05, 1] }}
+          transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+          className="text-red-400 mb-2 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]"
+        >
+          <CreditCard size={64} />
+        </motion.div>
+        <h2 className="text-2xl font-bold text-white text-center">Hutang & Piutang</h2>
+      </div>
+
+      <div className="flex bg-white/5 border border-white/10 rounded-2xl p-1 mb-6">
+        <button 
+          onClick={() => setActiveTab('HUTANG')}
+          className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'HUTANG' ? 'bg-red-500/20 text-red-400 shadow-lg' : 'text-white/70 hover:text-white'}`}
+        >Hutang (Saya Pinjam)</button>
+        <button 
+          onClick={() => setActiveTab('PIUTANG')}
+          className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === 'PIUTANG' ? 'bg-teal-500/20 text-teal-400 shadow-lg' : 'text-white/70 hover:text-white'}`}
+        >Piutang (Orang Pinjam)</button>
+      </div>
 
       <button 
         onClick={() => setShowAddForm(!showAddForm)}
-        className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-4 flex items-center justify-center gap-2 text-white font-medium shadow-xl mb-6"
+        className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-4 flex items-center justify-center gap-2 text-white font-medium shadow-xl mb-6 hover:bg-white/15"
       >
         {showAddForm ? <AlertCircle size={20} /> : <Plus size={20} />}
-        {showAddForm ? 'Batal Tambah' : 'Catat Hutang Baru'}
+        {showAddForm ? 'Batal Tambah' : `Catat ${activeTab === 'HUTANG' ? 'Hutang' : 'Piutang'} Baru`}
       </button>
 
       <AnimatePresence>
         {showAddForm && (
           <motion.form 
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
             onSubmit={handleCreateDebt}
             className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-5 shadow-2xl mb-6 overflow-hidden"
           >
             <div className="space-y-4">
               <div>
-                <label className="text-white/60 text-xs font-medium ml-1 mb-1 block">Judul / Keterangan</label>
+                <label className="text-white/70 text-[10px] font-bold uppercase tracking-widest ml-1 block mb-1">Judul / Kepada Siapa</label>
                 <input 
                   type="text"
-                  placeholder="Contoh: Pinjam ke Budi"
+                  placeholder="Contoh: Budi"
                   value={newDebt.title}
                   onChange={(e) => setNewDebt({...newDebt, title: e.target.value})}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-orange-400 transition-all"
+                  className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/45 focus:outline-none focus:ring-1 focus:ring-teal-400 transition-all font-light"
                 />
               </div>
               <div>
-                <label className="text-white/60 text-xs font-medium ml-1 mb-1 block">Nominal Hutang</label>
+                <label className="text-white/70 text-[10px] font-bold uppercase tracking-widest ml-1 block mb-1">Nominal</label>
                 <input 
                   type="number"
                   placeholder="Contoh: 500000"
                   value={newDebt.amount}
                   onChange={(e) => setNewDebt({...newDebt, amount: e.target.value})}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-orange-400 transition-all"
+                  className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/45 focus:outline-none focus:ring-1 focus:ring-teal-400 transition-all font-light"
                 />
               </div>
               <div>
-                <label className="text-white/60 text-xs font-medium ml-1 mb-1 block">Jatuh Tempo</label>
+                <label className="text-white/70 text-[10px] font-bold uppercase tracking-widest ml-1 block mb-1">Jatuh Tempo</label>
                 <input 
                   type="date"
                   value={newDebt.due_date}
                   onChange={(e) => setNewDebt({...newDebt, due_date: e.target.value})}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-orange-400 transition-all appearance-none"
+                  className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-1 focus:ring-teal-400 transition-all appearance-none font-light"
                 />
               </div>
               <motion.button 
-                whileTap={{ scale: 0.95 }}
-                type="submit"
-                className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white font-bold rounded-xl px-4 py-3 shadow-[0_0_15px_rgba(239,68,68,0.4)] flex justify-center items-center mt-2"
+                whileTap={{ scale: 0.95 }} type="submit"
+                className={`w-full text-white font-bold rounded-xl px-4 py-3 flex justify-center items-center mt-2 ${activeTab === 'HUTANG' ? 'bg-gradient-to-r from-red-500 to-red-600 shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'bg-gradient-to-r from-teal-500 to-teal-600 shadow-[0_0_15px_rgba(20,184,166,0.4)]'}`}
               >
                 SIMPAN CATATAN
               </motion.button>
@@ -189,11 +218,12 @@ export default function Debts() {
       </AnimatePresence>
 
       <div className="space-y-4">
-        {debts.map(debt => {
-          const dueDate = new Date(debt.due_date);
-          const daysLeft = differenceInDays(dueDate, new Date());
-          const isDanger = !debt.is_paid && daysLeft <= 3;
-          
+        {filteredDebts.map(debt => {
+          const isPaid = debt.status === 'paid';
+          const dueDate = debt.due_date ? new Date(debt.due_date) : null;
+          const daysLeft = dueDate ? differenceInDays(dueDate, new Date()) : null;
+          const isDanger = !isPaid && daysLeft !== null && daysLeft <= 3;
+
           return (
             <div 
               key={debt.id}
@@ -203,29 +233,31 @@ export default function Debts() {
                   : 'border-white/10 shadow-xl'
               }`}
             >
-              {isDanger && (
-                <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse"></div>
-              )}
+              {isDanger && <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse"></div>}
               
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className={`font-bold text-lg ${isDanger ? 'text-red-400 animate-pulse' : 'text-white'}`}>
+                  <h3 className={`font-bold text-lg ${isDanger ? 'text-red-400' : 'text-white'}`}>
                     {debt.title}
                   </h3>
-                  <div className="flex items-center gap-1 text-white/50 text-xs mt-1">
+                  <div className={`flex items-center gap-1 text-xs mt-1 font-medium px-2 py-1 inline-flex rounded-md ${isDanger ? 'bg-red-500/20 text-red-200' : 'bg-white/10 text-white/70'}`}>
                     <Clock size={12} />
-                    <span>Jatuh Tempo: {dueDate.toLocaleDateString('id-ID')}</span>
+                    <span>Pengingat: {dueDate ? dueDate.toLocaleDateString('id-ID') : 'Tidak ada'}</span>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className="text-white font-bold text-lg">{formatIDR(Number(debt.amount))}</p>
-                  <p className={`text-xs font-medium mt-1 ${debt.is_paid ? 'text-teal-400' : isDanger ? 'text-red-400' : 'text-orange-400'}`}>
-                    {debt.is_paid ? 'LUNAS' : isDanger ? `${daysLeft < 0 ? 'TERLAMBAT' : `SISA ${daysLeft} HARI`}` : 'BELUM LUNAS'}
+                  <p className={`text-xs font-bold mt-1 tracking-wider ${isPaid ? 'text-teal-400' : isDanger ? 'text-red-400' : 'text-orange-400'}`}>
+                    {isPaid
+                      ? 'LUNAS'
+                      : isDanger
+                        ? (daysLeft! < 0 ? 'TERLAMBAT' : `SISA ${daysLeft} HARI`)
+                        : 'BELUM LUNAS'}
                   </p>
                 </div>
               </div>
 
-              {!debt.is_paid && (
+              {!isPaid && (
                 <motion.button
                   whileTap={{ scale: 0.98 }}
                   onClick={() => setSelectedDebt(debt)}
@@ -242,59 +274,48 @@ export default function Debts() {
             </div>
           );
         })}
-        {debts.length === 0 && !isLoading && (
-          <p className="text-center text-white/50 text-sm py-8">Belum ada catatan hutang.</p>
+        {filteredDebts.length === 0 && !isLoading && (
+          <p className="text-center text-white/60 text-sm py-8 font-light italic">Belum ada catatan.</p>
         )}
       </div>
 
-      {/* Pay Debt Modal */}
       <AnimatePresence>
         {selectedDebt && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setSelectedDebt(null)}
               className="absolute inset-0 bg-[#0F172A]/80 backdrop-blur-sm"
             ></motion.div>
             
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               className="bg-[#1e293b] border border-white/10 p-6 rounded-3xl w-full max-w-sm relative z-10 shadow-2xl"
             >
               <h3 className="text-white font-bold text-lg mb-4">Lunasi: {selectedDebt.title}</h3>
               <form onSubmit={handleMarkAsPaid} className="space-y-4">
-                <div className="bg-white/5 p-3 rounded-xl mb-4 text-center">
+                <div className="bg-white/5 p-3 rounded-xl mb-4 text-center border border-white/5">
                   <p className="text-white/60 text-xs">Total Pembayaran</p>
-                  <p className="text-white font-bold text-xl">{formatIDR(Number(selectedDebt.amount))}</p>
+                  <p className="text-white font-bold text-xl mt-1">{formatIDR(Number(selectedDebt.amount))}</p>
                 </div>
                 <div>
-                  <label className="text-white/60 text-xs font-medium ml-1 mb-1 block">Bayar Dari (Dompet)</label>
+                  <label className="text-white/70 text-[10px] font-bold uppercase tracking-widest ml-1 block mb-1">Dompet</label>
                   <select 
                     value={payDebt.wallet_id}
                     onChange={(e) => setPayDebt({...payDebt, wallet_id: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-teal-400 transition-all appearance-none"
+                    className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-1 focus:ring-teal-400 appearance-none font-light"
                   >
-                    {wallets.map(w => (
-                      <option key={w.id} value={w.id} className="bg-slate-800">{w.name} (Rp {w.balance})</option>
+                    <option value="" disabled className="bg-slate-900">Pilih Dompet</option>
+                    {(wallets || []).map(w => (
+                      <option key={w.id} value={w.id} className="bg-slate-900">{w.name} (Rp {w.balance})</option>
                     ))}
                   </select>
                 </div>
                 <div className="flex gap-3 mt-6">
-                  <button 
-                    type="button"
-                    onClick={() => setSelectedDebt(null)}
-                    className="flex-1 bg-white/10 text-white font-medium rounded-xl py-3"
-                  >
+                  <button type="button" onClick={() => setSelectedDebt(null)} className="flex-1 bg-white/5 text-white font-medium rounded-xl py-3 border border-white/10 hover:bg-white/10">
                     Batal
                   </button>
-                  <button 
-                    type="submit"
-                    className="flex-1 bg-gradient-to-r from-teal-500 to-teal-600 text-white font-bold rounded-xl py-3 shadow-[0_0_15px_rgba(20,184,166,0.4)]"
-                  >
+                  <button type="submit" className="flex-1 bg-gradient-to-r from-teal-500 to-teal-600 text-white font-bold rounded-xl py-3 shadow-[0_0_15px_rgba(20,184,166,0.4)]">
                     Konfirmasi Lunas
                   </button>
                 </div>

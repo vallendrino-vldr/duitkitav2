@@ -1,81 +1,134 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { GoogleGenAI } from '@google/genai';
+import { requireUser } from '../middleware/auth';
 
 const router = Router();
-const upload = multer();
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || '',
+// Batas ukuran & tipe: tanpa ini satu unggahan besar bisa menghabiskan memori server.
+const upload = multer({
+  limits: { fileSize: 4 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^image\/(jpeg|png|webp)$/.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Format gambar tidak didukung'));
+  },
 });
 
-const SYSTEM_INSTRUCTION = "Parse financial data. Return ONLY valid JSON exactly matching this schema: { \"title\": string, \"amount\": number, \"type\": \"expense\"|\"income\", \"category\": string }. Do not include markdown formatting or backticks.";
+import { config } from '../config';
 
-router.post('/receipt', upload.single('receipt'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No receipt image provided' });
+// Diverifikasi hidup pada Juli 2026. gemini-1.5-flash sudah dipensiunkan (404),
+// jadi nama model dibuat bisa diganti lewat .env tanpa mengubah kode.
+const MODEL = config.geminiModel;
+const KUNCI = config.geminiKeys;
+
+const SYSTEM_INSTRUCTION =
+  'Parse financial data. Return ONLY valid JSON exactly matching this schema: ' +
+  '{ "title": string, "amount": number, "type": "expense"|"income", "category": string }. ' +
+  'Amount must be a plain number without currency symbols or separators. ' +
+  'Category and title must be in Bahasa Indonesia. Do not include markdown formatting or backticks.';
+
+export interface HasilParsing {
+  title: string;
+  amount: number;
+  type: 'expense' | 'income';
+  category: string;
+}
+
+const KATEGORI_VALID = ['Makanan', 'Transportasi', 'Hiburan', 'Tagihan', 'Belanja', 'Kesehatan'];
+
+/**
+ * Memvalidasi balasan model. Model bahasa bisa mengembalikan bentuk apa pun;
+ * tanpa lapisan ini, `amount` berupa teks atau field yang hilang akan langsung
+ * masuk ke form dan menghasilkan transaksi bernilai NaN.
+ */
+function validasi(mentah: unknown): HasilParsing {
+  if (!mentah || typeof mentah !== 'object') throw new Error('Balasan AI bukan objek');
+  const o = mentah as Record<string, unknown>;
+
+  const angka = typeof o.amount === 'number' ? o.amount : Number(String(o.amount ?? '').replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(angka) || angka <= 0) throw new Error('Nominal tidak terbaca');
+
+  const tipe = o.type === 'income' ? 'income' : 'expense';
+  const judul = typeof o.title === 'string' && o.title.trim() ? o.title.trim().slice(0, 120) : 'Transaksi';
+
+  let kategori = typeof o.category === 'string' && o.category.trim() ? o.category.trim().slice(0, 40) : 'Belanja';
+  const cocok = KATEGORI_VALID.find((k) => k.toLowerCase() === kategori.toLowerCase());
+  if (cocok) kategori = cocok;
+
+  return { title: judul, amount: Math.round(angka), type: tipe, category: kategori };
+}
+
+function bersihkanJson(teks: string): unknown {
+  const bersih = teks.replace(/```json/gi, '').replace(/```/g, '').trim();
+  return JSON.parse(bersih);
+}
+
+/**
+ * Menjalankan prompt, mencoba kunci cadangan bila kunci utama kena limit/tolak.
+ */
+async function generate(parts: any[], jsonMode: boolean): Promise<string> {
+  if (KUNCI.length === 0) throw new Error('GEMINI_API_KEY belum diatur');
+
+  let terakhir: unknown;
+  for (const apiKey of KUNCI) {
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: MODEL,
+        contents: [{ role: 'user', parts }],
+        config: jsonMode
+          ? { systemInstruction: SYSTEM_INSTRUCTION, responseMimeType: 'application/json' }
+          : {},
+      });
+
+      // `.text` itu PROPERTY, bukan fungsi. Kode lama memanggil `response.text()`
+      // sehingga selalu melempar "response.text is not a function".
+      const teks = response.text;
+      if (!teks) throw new Error('Balasan AI kosong');
+      return teks;
+    } catch (e) {
+      console.error(`[GEMINI] gagal dengan salah satu kunci:`, e);
+      terakhir = e;
+    }
   }
+  throw terakhir instanceof Error ? terakhir : new Error('Semua kunci Gemini gagal');
+}
+
+router.post('/receipt', requireUser, upload.single('receipt'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Tidak ada gambar struk' });
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash-lite',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { data: req.file.buffer.toString('base64'), mimeType: req.file.mimetype } },
-            { text: "Extract the total amount, suggest a title, determine if it's an expense or income, and suggest a category based on this receipt." }
-          ]
-        }
+    const teks = await generate(
+      [
+        { inlineData: { data: req.file.buffer.toString('base64'), mimeType: req.file.mimetype } },
+        { text: 'Extract the total amount, suggest a title, determine if it is an expense or income, and suggest a category based on this receipt.' },
       ],
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-      }
-    });
+      true,
+    );
 
-    const text = response.text();
-    const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsedData = JSON.parse(jsonStr);
-
-    res.json(parsedData);
+    res.json(validasi(bersihkanJson(teks)));
   } catch (error) {
     console.error('Error scanning receipt:', error);
-    res.status(500).json({ error: 'Failed to process receipt' });
+    res.status(502).json({ error: 'Gagal membaca struk' });
   }
 });
 
-router.post('/voice', upload.single('audio'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No audio provided' });
-  }
-
+router.post('/roast', requireUser, async (req, res) => {
+  const { income, expense, topCategory } = req.body ?? {};
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash-lite',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { data: req.file.buffer.toString('base64'), mimeType: req.file.mimetype } },
-            { text: "Listen to this audio and extract the financial transaction details." }
-          ]
-        }
-      ],
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-      }
-    });
-
-    const text = response.text();
-    const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsedData = JSON.parse(jsonStr);
-
-    res.json(parsedData);
+    const teks = await generate(
+      [{
+        text:
+          'Roast gaya bahasa anak Jaksel yang pedas, savage, tapi lucu. ' +
+          `Pemasukan gue Rp ${Number(income) || 0}, pengeluaran Rp ${Number(expense) || 0}, ` +
+          `paling boros di kategori ${String(topCategory || 'nggak jelas')}. Maksimal 2 kalimat pendek.`,
+      }],
+      false,
+    );
+    res.json({ roast: teks.trim() });
   } catch (error) {
-    console.error('Error processing voice:', error);
-    res.status(500).json({ error: 'Failed to process voice' });
+    console.error('Error roasting:', error);
+    res.status(502).json({ roast: 'Gagal koneksi ke Gemini AI. Coba lagi nanti bro.' });
   }
 });
 

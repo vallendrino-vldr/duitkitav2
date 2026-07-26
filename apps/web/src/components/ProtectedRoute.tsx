@@ -1,65 +1,40 @@
-import React, { useEffect, useState } from 'react';
+import { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthProvider';
 import PinLockScreen from './PinLockScreen';
+import FullScreenLoader from './FullScreenLoader';
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
+  children: ReactNode;
   allowedRole?: 'user' | 'admin';
 }
 
+/**
+ * Penjaga rute murni: tidak menyimpan state, tidak mengambil data, tidak menyentuh
+ * sessionStorage. Semua keputusan datang dari `status` milik AuthProvider.
+ *
+ * Setiap cabang di bawah mengembalikan sesuatu yang terlihat, dan `status` hanya
+ * punya empat nilai — jadi secara struktural tidak mungkin lagi merender layar
+ * kosong. Versi lama bisa: `isLocked` selalu disetel true saat mount, sementara
+ * layar PIN menyembunyikan dirinya sendiri berdasarkan sessionStorage, sehingga
+ * layar PIN dan isi halaman sama-sama tidak muncul.
+ */
 export default function ProtectedRoute({ children, allowedRole = 'user' }: ProtectedRouteProps) {
-  const [session, setSession] = useState<any>(null);
-  const [role, setRole] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isLocked, setIsLocked] = useState(true);
+  const { status, role, unlock } = useAuth();
 
-  useEffect(() => {
-    const fetchSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      
-      if (session) {
-        // Fetch role from profile
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', session.user.id)
-          .single();
-        
-        setRole(profile?.role || 'user');
-        
-        // Only lock if it's a regular user, admin might bypass or have their own logic
-        // But for now, require PIN for all returning authenticated users to protect cached data
-        setIsLocked(true); 
-      } else {
-        setIsLocked(false);
-      }
-      setLoading(false);
-    };
-
-    fetchSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (!session) setIsLocked(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-teal-400 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
+  if (status === 'loading') {
+    return <FullScreenLoader label="Memuat sistem…" />;
   }
 
-  if (!session) {
+  if (status === 'signedOut') {
     return <Navigate to="/login" replace />;
   }
 
+  if (status === 'locked') {
+    return <PinLockScreen isLocked onUnlock={unlock} />;
+  }
+
+  // status === 'ready'
   if (allowedRole === 'admin' && role !== 'admin') {
     return <Navigate to="/dashboard" replace />;
   }
@@ -68,10 +43,5 @@ export default function ProtectedRoute({ children, allowedRole = 'user' }: Prote
     return <Navigate to="/admin" replace />;
   }
 
-  return (
-    <>
-      <PinLockScreen isLocked={isLocked} onUnlock={() => setIsLocked(false)} />
-      {!isLocked && children}
-    </>
-  );
+  return <>{children}</>;
 }

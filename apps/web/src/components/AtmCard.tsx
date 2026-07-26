@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFinanceStore } from '../store/useFinanceStore';
 import { Eye, EyeOff, CreditCard, Wallet } from 'lucide-react';
@@ -8,7 +8,8 @@ export default function AtmCard() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
 
-  const totalBalance = wallets.reduce((acc, wallet) => acc + Number(wallet.balance), 0);
+  const safeWallets = wallets || [];
+  const totalBalance = safeWallets.reduce((acc, wallet) => acc + Number(wallet.balance), 0);
 
   const formatIDR = (num: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -58,10 +59,12 @@ export default function AtmCard() {
               exit={{ opacity: 0, height: 0, marginTop: 0 }}
               className="border-t border-white/20 pt-4 space-y-3"
             >
-              {wallets.map((wallet) => (
+              {safeWallets.map((wallet) => (
                 <div key={wallet.id} className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
-                    {wallet.name.toLowerCase().includes('cash') ? (
+                    {/* ?? '' — nama dompet bisa saja null dan .toLowerCase() pada
+                        null langsung menjatuhkan kartu saldo. */}
+                    {(wallet.name ?? '').toLowerCase().includes('cash') ? (
                       <Wallet size={16} className="text-teal-400" />
                     ) : (
                       <CreditCard size={16} className="text-purple-400" />
@@ -73,8 +76,8 @@ export default function AtmCard() {
                   </span>
                 </div>
               ))}
-              {wallets.length === 0 && (
-                <div className="text-white/50 text-sm text-center">No wallets found</div>
+              {safeWallets.length === 0 && (
+                <div className="text-white/70 text-sm text-center">No wallets found</div>
               )}
             </motion.div>
           )}

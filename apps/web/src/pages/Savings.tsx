@@ -4,10 +4,11 @@ import { Plus, PiggyBank, Image as ImageIcon, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { useFinanceStore } from '../store/useFinanceStore';
+import { safeMutate, pesanError } from '../lib/db';
 import { compressImage } from '../utils/imageCompressor';
 
 export default function Savings() {
-  const { wallets, addTransactionOffline } = useFinanceStore();
+  const { wallets, fetchWallets, fetchTransactions } = useFinanceStore();
   const [goals, setGoals] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -17,12 +18,13 @@ export default function Savings() {
   const [newGoal, setNewGoal] = useState({
     title: '',
     target_amount: '',
+    target_date: '',
     image_url: '',
   });
 
   const [addFunds, setAddFunds] = useState({
     amount: '',
-    wallet_id: wallets[0]?.id || ''
+    wallet_id: wallets?.[0]?.id || ''
   });
 
   useEffect(() => {
@@ -33,10 +35,14 @@ export default function Savings() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase.from('saving_goals').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (data) setGoals(data);
+      const data = await safeMutate<any[]>(
+        supabase.from('saving_goals').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        'Gagal memuat target',
+      );
+      setGoals(data ?? []);
     } catch (error) {
-      console.error(error);
+      toast.error(pesanError(error, 'Gagal memuat target'));
+      setGoals([]);
     } finally {
       setIsLoading(false);
     }
@@ -49,21 +55,17 @@ export default function Savings() {
     const toastId = toast.loading('Mengunggah gambar...');
     try {
       const compressedFile = await compressImage(file);
-      const fileName = `${Date.now()}-${file.name}`;
       
-      const { data, error } = await supabase.storage
-        .from('receipts') // Assuming 'receipts' bucket is available for uploads as configured earlier
-        .upload(fileName, compressedFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (error) throw error;
-
-      const { data: { publicUrl } } = supabase.storage.from('receipts').getPublicUrl(fileName);
-      
-      setNewGoal({ ...newGoal, image_url: publicUrl });
-      toast.success('Gambar berhasil diunggah', { id: toastId });
+      const reader = new FileReader();
+      reader.readAsDataURL(compressedFile);
+      reader.onloadend = () => {
+        // Functional update: closure `newGoal` sudah basi saat callback berjalan.
+        setNewGoal((prev) => ({ ...prev, image_url: reader.result as string }));
+        toast.success('Gambar berhasil diunggah', { id: toastId });
+      };
+      reader.onerror = () => {
+        toast.error('Gagal membaca gambar', { id: toastId });
+      };
     } catch (error) {
       console.error(error);
       toast.error('Gagal mengunggah gambar', { id: toastId });
@@ -82,24 +84,26 @@ export default function Savings() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // `target_date` sekarang kolom tersendiri. Sebelumnya tanggal ditempelkan
+      // ke dalam judul sebagai "(Target: 2026-01-01)" sehingga tidak bisa
+      // diurutkan, difilter, atau diubah tanpa mengedit teks judul.
       const goalData = {
         user_id: user.id,
-        title: newGoal.title,
+        title: newGoal.title.trim(),
         target_amount: Number(newGoal.target_amount),
         current_amount: 0,
-        image_url: newGoal.image_url || 'https://images.unsplash.com/photo-1579621970588-a35d0e7ab9b6?w=500&q=80',
+        target_date: newGoal.target_date || null,
+        image_url: newGoal.image_url || null,
       };
 
-      const { error } = await supabase.from('saving_goals').insert(goalData);
-      if (error) throw error;
+      await safeMutate(supabase.from('saving_goals').insert(goalData), 'Gagal menyimpan target');
 
       toast.success('Target tabungan berhasil dibuat!', { id: toastId });
       setShowAddForm(false);
-      setNewGoal({ title: '', target_amount: '', image_url: '' });
+      setNewGoal({ title: '', target_amount: '', target_date: '', image_url: '' });
       fetchGoals();
     } catch (error) {
-      console.error(error);
-      toast.error('Gagal menyimpan target', { id: toastId });
+      toast.error(pesanError(error, 'Gagal menyimpan target'), { id: toastId });
     }
   };
 
@@ -127,24 +131,29 @@ export default function Savings() {
         created_at: new Date().toISOString()
       };
 
-      await supabase.from('transactions').insert(transactionData);
-      
-      // Sync offline transaction (updates local wallet balance)
-      addTransactionOffline(transactionData as any);
+      await safeMutate(
+        supabase.from('transactions').insert(transactionData),
+        'Gagal mencatat transaksi tabungan',
+      );
 
       // 2. Update goal amount
       const newCurrentAmount = Number(selectedGoal.current_amount) + Number(addFunds.amount);
-      await supabase.from('saving_goals')
-        .update({ current_amount: newCurrentAmount })
-        .eq('id', selectedGoal.id);
+      await safeMutate(
+        supabase.from('saving_goals')
+          .update({ current_amount: newCurrentAmount })
+          .eq('id', selectedGoal.id),
+        'Gagal memperbarui target',
+      );
+
+      // Saldo dompet dihitung ulang oleh trigger database.
+      await Promise.allSettled([fetchWallets(), fetchTransactions()]);
 
       toast.success('Tabungan berhasil ditambah!', { id: toastId });
       setSelectedGoal(null);
-      setAddFunds({ amount: '', wallet_id: wallets[0]?.id || '' });
+      setAddFunds({ amount: '', wallet_id: wallets?.[0]?.id || '' });
       fetchGoals();
     } catch (error) {
-      console.error(error);
-      toast.error('Gagal menambah tabungan', { id: toastId });
+      toast.error(pesanError(error, 'Gagal menambah tabungan'), { id: toastId });
     }
   };
 
@@ -157,7 +166,7 @@ export default function Savings() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="p-4 pt-10 pb-24 max-w-lg mx-auto relative z-10"
+      className="page pb-24 relative z-10"
     >
       <div className="flex flex-col items-center mb-8">
         <motion.div 
@@ -195,18 +204,29 @@ export default function Savings() {
                   placeholder="Contoh: Liburan ke Jepang"
                   value={newGoal.title}
                   onChange={(e) => setNewGoal({...newGoal, title: e.target.value})}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/45 focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all"
                 />
               </div>
-              <div>
-                <label className="text-white/60 text-xs font-medium ml-1 mb-1 block">Target Nominal</label>
-                <input 
-                  type="number"
-                  placeholder="Contoh: 15000000"
-                  value={newGoal.target_amount}
-                  onChange={(e) => setNewGoal({...newGoal, target_amount: e.target.value})}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-white/60 text-xs font-medium ml-1 mb-1 block">Target Nominal</label>
+                  <input 
+                    type="number"
+                    placeholder="Contoh: 15000000"
+                    value={newGoal.target_amount}
+                    onChange={(e) => setNewGoal({...newGoal, target_amount: e.target.value})}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/45 focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="text-white/60 text-xs font-medium ml-1 mb-1 block">Target Tanggal</label>
+                  <input 
+                    type="date"
+                    value={newGoal.target_date}
+                    onChange={(e) => setNewGoal({...newGoal, target_date: e.target.value})}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all appearance-none"
+                  />
+                </div>
               </div>
               <div>
                 <label className="text-white/60 text-xs font-medium ml-1 mb-1 block">Gambar Inspirasi</label>
@@ -220,7 +240,7 @@ export default function Savings() {
                 <button 
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full bg-white/5 border border-white/10 border-dashed rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-white/50 hover:text-white hover:bg-white/10 transition-all"
+                  className="w-full bg-white/5 border border-white/10 border-dashed rounded-xl p-4 flex flex-col items-center justify-center gap-2 text-white/70 hover:text-white hover:bg-white/10 transition-all"
                 >
                   <ImageIcon size={24} />
                   <span className="text-sm text-center">
@@ -242,6 +262,14 @@ export default function Savings() {
       </AnimatePresence>
 
       <div className="space-y-4">
+        {isLoading && (
+          <p className="text-center text-white/60 text-sm py-8">Memuat target…</p>
+        )}
+        {!isLoading && goals.length === 0 && (
+          <p className="text-center text-white/60 text-sm py-8">
+            Belum ada target tabungan. Buat yang pertama di atas.
+          </p>
+        )}
         {goals.map(goal => {
           const progress = Math.min((Number(goal.current_amount) / Number(goal.target_amount)) * 100, 100);
           return (
@@ -249,9 +277,9 @@ export default function Savings() {
               key={goal.id}
               className="relative w-full h-48 rounded-3xl overflow-hidden shadow-2xl flex flex-col justify-end p-5 group"
             >
-              <div 
-                className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                style={{ backgroundImage: `url(${goal.image_url})` }}
+              <div
+                className="absolute inset-0 bg-cover bg-center bg-gradient-to-br from-purple-800 to-pink-700 transition-transform duration-700 group-hover:scale-110"
+                style={goal.image_url ? { backgroundImage: `url(${goal.image_url})` } : undefined}
               ></div>
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent"></div>
               
@@ -259,7 +287,10 @@ export default function Savings() {
                 <div className="flex justify-between items-end mb-2">
                   <div>
                     <h3 className="text-white font-bold text-lg leading-tight">{goal.title}</h3>
-                    <p className="text-white/70 text-xs">{formatIDR(Number(goal.current_amount))} / {formatIDR(Number(goal.target_amount))}</p>
+                    <p className="text-white/70 text-xs">
+                      {formatIDR(Number(goal.current_amount))} / {formatIDR(Number(goal.target_amount))} 
+                      <span className="text-pink-400 font-bold ml-1">({progress.toFixed(0)}%)</span>
+                    </p>
                   </div>
                   <motion.button 
                     whileTap={{ scale: 0.9 }}
@@ -310,7 +341,7 @@ export default function Savings() {
                     onChange={(e) => setAddFunds({...addFunds, wallet_id: e.target.value})}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all appearance-none"
                   >
-                    {wallets.map(w => (
+                    {(wallets || []).map(w => (
                       <option key={w.id} value={w.id} className="bg-slate-800">{w.name} (Rp {w.balance})</option>
                     ))}
                   </select>
@@ -322,7 +353,7 @@ export default function Savings() {
                     placeholder="Contoh: 100000"
                     value={addFunds.amount}
                     onChange={(e) => setAddFunds({...addFunds, amount: e.target.value})}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/45 focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all"
                   />
                 </div>
                 <div className="flex gap-3 mt-6">
