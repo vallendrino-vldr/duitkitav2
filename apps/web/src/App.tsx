@@ -25,6 +25,21 @@ const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers'));
 const AdminStorage = lazy(() => import('./pages/AdminStorage'));
 
+// Halaman fitur lanjutan juga dimuat saat dibuka saja: tidak semua orang
+// memakainya tiap hari, dan menahannya di luar bundel awal menjaga waktu
+// buka pertama tetap ringan.
+const Transfer = lazy(() => import('./pages/Transfer'));
+const Receipts = lazy(() => import('./pages/Receipts'));
+const Budget = lazy(() => import('./pages/Budget'));
+const Recurring = lazy(() => import('./pages/Recurring'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Preferences = lazy(() => import('./pages/Preferences'));
+
+/** Pembungkus agar tiap halaman malas punya layar tunggu yang konsisten. */
+function Malas({ children, label }: { children: React.ReactNode; label: string }) {
+  return <Suspense fallback={<FullScreenLoader label={label} />}>{children}</Suspense>;
+}
+
 /** Bingkai ponsel untuk halaman masuk/daftar (bisa digulir di layar pendek). */
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
@@ -75,13 +90,19 @@ export default function App() {
               <Route path="/add" element={<Add />} />
               <Route path="/savings" element={<Savings />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/transfer" element={<Malas label="Memuat transfer…"><Transfer /></Malas>} />
+              <Route path="/receipts" element={<Malas label="Memuat galeri struk…"><Receipts /></Malas>} />
+              <Route path="/budget" element={<Malas label="Memuat anggaran…"><Budget /></Malas>} />
+              <Route path="/recurring" element={<Malas label="Memuat transaksi berulang…"><Recurring /></Malas>} />
+              <Route path="/reports" element={<Malas label="Memuat laporan…"><Reports /></Malas>} />
+              <Route path="/preferences" element={<Malas label="Memuat preferensi…"><Preferences /></Malas>} />
             </Route>
 
             {/* Rute admin */}
             <Route element={<ProtectedRoute allowedRole="admin"><AdminLayout /></ProtectedRoute>}>
-              <Route path="/admin" element={<Suspense fallback={<FullScreenLoader label="Memuat panel admin…" />}><AdminDashboard /></Suspense>} />
-              <Route path="/admin/users" element={<Suspense fallback={<FullScreenLoader label="Memuat pengguna…" />}><AdminUsers /></Suspense>} />
-              <Route path="/admin/storage" element={<Suspense fallback={<FullScreenLoader label="Memuat penyimpanan…" />}><AdminStorage /></Suspense>} />
+              <Route path="/admin" element={<Malas label="Memuat panel admin…"><AdminDashboard /></Malas>} />
+              <Route path="/admin/users" element={<Malas label="Memuat pengguna…"><AdminUsers /></Malas>} />
+              <Route path="/admin/storage" element={<Malas label="Memuat penyimpanan…"><AdminStorage /></Malas>} />
             </Route>
 
             <Route path="*" element={<Navigate to="/login" replace />} />

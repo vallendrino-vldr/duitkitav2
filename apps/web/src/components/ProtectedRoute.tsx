@@ -39,9 +39,10 @@ export default function ProtectedRoute({ children, allowedRole = 'user' }: Prote
     return <Navigate to="/dashboard" replace />;
   }
 
-  if (allowedRole === 'user' && role === 'admin') {
-    return <Navigate to="/admin" replace />;
-  }
-
+  // Admin SENGAJA tidak dilempar keluar dari halaman pengguna.
+  // Aturan lama memaksa setiap admin ke /admin, sehingga pemilik aplikasi
+  // sendiri tidak bisa memakai fitur biasa — mencatat transaksi, transfer,
+  // atau sekadar menguji tampilan di ponsel — dengan akunnya sendiri.
+  // Panel admin tetap tertutup untuk non-admin lewat pemeriksaan di atas.
   return <>{children}</>;
 }

@@ -1,88 +1,36 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X, Share } from 'lucide-react';
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
+import { usePWAInstall } from '../lib/usePWAInstall';
 
 const KUNCI_TUNDA = 'duitkita_install_ditunda';
 
-function sudahTerpasang(): boolean {
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    // iOS memakai properti non-standar ini.
-    (window.navigator as any).standalone === true
-  );
-}
-
-function iniIOS(): boolean {
-  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as any).MSStream;
-}
-
 /**
- * Ajakan pasang aplikasi ke layar utama.
+ * Ajakan memasang aplikasi, muncul mengambang di bawah.
  *
- * Browser hanya menembakkan `beforeinstallprompt` SEKALI dan pada saat yang
- * tidak bisa ditebak — biasanya sebelum halaman selesai digambar. Kalau
- * kejadiannya tidak ditangkap sejak awal, tombol pasang tidak akan pernah
- * muncul lagi sampai tab dibuka ulang. Karena itu event-nya sudah dijerat di
- * main.tsx sebelum React berjalan, dan komponen ini tinggal mengambilnya.
- *
- * Safari iOS tidak mendukung pemasangan otomatis sama sekali, jadi di sana
- * yang ditampilkan adalah petunjuk manual.
+ * Sengaja BUKAN satu-satunya jalan memasang: tombol permanen juga tersedia di
+ * halaman Pengaturan. Browser hanya menawarkan pemasangan otomatis bila
+ * syaratnya terpenuhi (service worker aktif, sudah ada interaksi, belum
+ * terpasang), dan Safari iOS tidak mendukungnya sama sekali — kalau hanya
+ * mengandalkan kartu ini, banyak pengguna tidak pernah melihat cara memasang.
  */
 export default function InstallPWA() {
-  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [tampil, setTampil] = useState(false);
-  const [ios, setIos] = useState(false);
+  const { status, pasang } = usePWAInstall();
+  const [ditunda, setDitunda] = useState(true);
 
   useEffect(() => {
-    if (sudahTerpasang()) return;
-    if (sessionStorage.getItem(KUNCI_TUNDA) === '1') return;
-
-    // Event yang mungkin sudah tertangkap sebelum React sempat berjalan.
-    const tertunda = (window as any).__duitkitaInstallPrompt as BeforeInstallPromptEvent | undefined;
-    if (tertunda) {
-      setPrompt(tertunda);
-      setTampil(true);
-    } else if (iniIOS()) {
-      setIos(true);
-      setTampil(true);
+    try {
+      setDitunda(sessionStorage.getItem(KUNCI_TUNDA) === '1');
+    } catch {
+      setDitunda(false);
     }
-
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      setPrompt(e as BeforeInstallPromptEvent);
-      setTampil(true);
-    };
-    const onInstalled = () => {
-      setTampil(false);
-      (window as any).__duitkitaInstallPrompt = undefined;
-    };
-
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
   }, []);
 
-  const pasang = async () => {
-    if (!prompt) return;
-    await prompt.prompt();
-    const { outcome } = await prompt.userChoice;
-    if (outcome === 'accepted') setTampil(false);
-    // Event pasang hanya berlaku sekali pakai.
-    (window as any).__duitkitaInstallPrompt = undefined;
-    setPrompt(null);
-  };
+  const tampil = !ditunda && (status === 'siap' || status === 'manual-ios');
 
   const tunda = () => {
-    sessionStorage.setItem(KUNCI_TUNDA, '1');
-    setTampil(false);
+    try { sessionStorage.setItem(KUNCI_TUNDA, '1'); } catch { /* mode privat */ }
+    setDitunda(true);
   };
 
   return (
@@ -103,17 +51,17 @@ export default function InstallPWA() {
 
           <div className="min-w-0 flex-1">
             <p className="font-bold text-sm">Pasang DuitKita</p>
-            {ios ? (
+            {status === 'manual-ios' ? (
               <p className="text-micro text-white/75 mt-1 leading-relaxed">
-                Ketuk <Share size={12} className="inline align-[-1px]" /> lalu pilih
+                Ketuk <Share size={12} className="inline align-[-1px]" /> di bilah bawah Safari, lalu pilih
                 <strong className="text-white"> Tambahkan ke Layar Utama</strong>.
               </p>
             ) : (
               <>
                 <p className="text-micro text-white/75 mt-1 leading-relaxed">
-                  Buka langsung dari layar utama, tetap tersambung data terbaru.
+                  Buka langsung dari layar utama, datanya tetap yang terbaru.
                 </p>
-                <button onClick={pasang} className="btn-primary mt-3 w-full text-sm">
+                <button onClick={() => void pasang()} className="btn-primary mt-3 w-full text-sm">
                   <Download size={16} /> Pasang Sekarang
                 </button>
               </>

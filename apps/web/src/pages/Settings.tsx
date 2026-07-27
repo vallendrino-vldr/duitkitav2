@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Wallet, Tags, Shield, LogOut, ChevronRight, X, Plus, Trash2, Save, Settings as SettingsIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import {
+  User, Wallet, Tags, Shield, LogOut, ChevronRight, X, Plus, Trash2, Save, Download,
+  ArrowLeftRight, Wallet2, Repeat, BarChart3, Receipt, SlidersHorizontal,
+  Settings as SettingsIcon,
+} from 'lucide-react';
+import { usePWAInstall } from '../lib/usePWAInstall';
 import { supabase } from '../lib/supabase';
 import { useFinanceStore } from '../store/useFinanceStore';
 import { useAuth } from '../lib/AuthProvider';
@@ -11,6 +17,7 @@ import toast from 'react-hot-toast';
 export default function Settings() {
   const { wallets, setWallets, clearStore } = useFinanceStore();
   const { signOut } = useAuth();
+  const { status: statusPasang, pasang: pasangAplikasi } = usePWAInstall();
   const [profile, setProfile] = useState<any>(null);
   const [activeModal, setActiveModal] = useState<string | null>(null);
 
@@ -164,6 +171,15 @@ export default function Settings() {
     }
   };
 
+  const fiturLain = [
+    { to: '/transfer', icon: ArrowLeftRight, label: 'Transfer Dompet', warna: 'bg-brand-400/15 text-brand-300' },
+    { to: '/budget', icon: Wallet2, label: 'Anggaran Bulanan', warna: 'bg-warn-400/15 text-warn-400' },
+    { to: '/recurring', icon: Repeat, label: 'Transaksi Berulang', warna: 'bg-accent-500/15 text-accent-300' },
+    { to: '/reports', icon: BarChart3, label: 'Laporan & Statistik', warna: 'bg-ok-400/15 text-ok-400' },
+    { to: '/receipts', icon: Receipt, label: 'Galeri Struk', warna: 'bg-brand-400/15 text-brand-300' },
+    { to: '/preferences', icon: SlidersHorizontal, label: 'Preferensi & Data', warna: 'bg-accent-500/15 text-accent-300' },
+  ];
+
   const menuItems = [
     { id: 'profil', icon: User, title: 'Profil Saya', desc: 'Atur nama, email, dan foto profil' },
     { id: 'wallet', icon: Wallet, title: 'Manajemen Dompet', desc: 'Tambah, edit, atau hapus dompet' },
@@ -284,6 +300,28 @@ export default function Settings() {
         <h2 className="text-2xl font-bold text-white text-center tracking-tight">Pengaturan</h2>
       </div>
 
+      {/* Pintu masuk fitur di ponsel. Dock bawah hanya muat lima tujuan,
+          sedangkan aplikasi punya sebelas halaman — sisanya dikumpulkan di sini
+          supaya tetap terjangkau tanpa menjejali dock. Di layar lebar semuanya
+          sudah tampil di sidebar, jadi bagian ini disembunyikan. */}
+      <div className="md:hidden mb-8">
+        <h3 className="label mb-3">Fitur</h3>
+        <div className="grid grid-cols-2 gap-3">
+          {fiturLain.map((f) => (
+            <Link
+              key={f.to}
+              to={f.to}
+              className="glass rounded-2xl p-4 flex flex-col gap-2 min-h-[96px] active:scale-[0.97] transition-transform"
+            >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${f.warna}`}>
+                <f.icon size={18} />
+              </div>
+              <span className="text-sm font-semibold leading-tight">{f.label}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-4 mb-8">
         {menuItems.map((item) => (
           <motion.button
@@ -305,6 +343,34 @@ export default function Settings() {
             <ChevronRight className="text-white/60" size={20} />
           </motion.button>
         ))}
+      </div>
+
+      {/* Tombol pasang PERMANEN. Kartu mengambang bisa ditutup pengguna dan
+          browser tidak selalu menawarkan pemasangan otomatis, jadi harus ada
+          satu tempat tetap yang selalu bisa dituju. */}
+      <div className="glass rounded-2xl p-4 mb-4">
+        <div className="flex items-center gap-4">
+          <div className="bg-accent-500/20 text-accent-300 p-3 rounded-xl shrink-0">
+            <Download size={20} />
+          </div>
+          <div className="text-left min-w-0 flex-1">
+            <h3 className="text-white font-semibold text-sm">Pasang Aplikasi</h3>
+            <p className="text-white/70 text-micro mt-0.5">
+              {statusPasang === 'terpasang'
+                ? 'Sudah terpasang di perangkat ini.'
+                : statusPasang === 'manual-ios'
+                  ? 'Ketuk ikon Bagikan di Safari, lalu "Tambahkan ke Layar Utama".'
+                  : statusPasang === 'siap'
+                    ? 'Buka langsung dari layar utama seperti aplikasi biasa.'
+                    : 'Belum tersedia di browser ini. Coba Chrome/Edge, atau buka lewat alamat aslinya.'}
+            </p>
+          </div>
+          {statusPasang === 'siap' && (
+            <button onClick={() => void pasangAplikasi()} className="btn-primary shrink-0 text-sm px-4">
+              Pasang
+            </button>
+          )}
+        </div>
       </div>
 
       <motion.button

@@ -38,7 +38,30 @@ export interface PenggunaAdmin {
   jumlahTransaksi: number;
 }
 
+export interface DetailPengguna {
+  profil: PenggunaAdmin;
+  dompet: Array<{ id: string; name: string; balance: number; initial_balance: number; created_at: string }>;
+  transaksi: Array<{
+    id: string; wallet_id: string; to_wallet_id: string | null;
+    type: 'income' | 'expense' | 'transfer'; amount: number;
+    category: string | null; title: string; receipt_url: string | null; created_at: string;
+  }>;
+  hutang: Array<{ id: string; title: string; amount: number; due_date: string | null; type: string; status: string }>;
+  target: Array<{ id: string; title: string; target_amount: number; current_amount: number; target_date: string | null }>;
+  anggaran: Array<{ id: string; category: string; amount_limit: number; period_month: string }>;
+  berulang: Array<{ id: string; title: string; type: string; amount: number; category: string | null; interval_unit: string; interval_count: number; next_run: string; is_active: boolean }>;
+  ringkasan: {
+    totalSaldo: number; masuk: number; keluar: number; selisih: number;
+    jumlahTransaksi: number; hutangBelumLunas: number;
+    perKategori: Array<{ kategori: string; total: number }>;
+    penyimpanan: { bytes: number; jumlah: number };
+  };
+}
+
 export const adminApi = {
+  detailPengguna: (id: string) =>
+    api.get<DetailPengguna>(`/api/admin/users/${id}/detail`).then((r) => r.data),
+
   stats: () => api.get<StatsAdmin>('/api/admin/stats').then((r) => r.data),
   storage: () => api.get<StorageAdmin>('/api/admin/storage').then((r) => r.data),
   users: () => api.get<PenggunaAdmin[]>('/api/admin/users').then((r) => r.data),

@@ -3,10 +3,11 @@ import {
   Users, Wallet, ArrowLeftRight, HandCoins, Target,
   TrendingUp, TrendingDown, HardDrive, RefreshCw, AlertTriangle,
 } from 'lucide-react';
-import { adminApi, formatIDR, formatBytes, type StatsAdmin, type StorageAdmin } from '../lib/adminApi';
+import { adminApi, formatIDR, formatBytes, type StatsAdmin, type StorageAdmin, type PenggunaAdmin } from '../lib/adminApi';
 import { useLiveData } from '../lib/useLiveData';
 import LiveBadge from '../components/admin/LiveBadge';
 import StatCard from '../components/admin/StatCard';
+import UserAccordion from '../components/admin/UserAccordion';
 
 export default function AdminDashboard() {
   const stats = useLiveData<StatsAdmin>(adminApi.stats, {
@@ -20,6 +21,12 @@ export default function AdminDashboard() {
     // realtime untuk itu, jadi satu-satunya cara tetap segar adalah polling.
     intervalMs: 20_000,
     channel: 'admin-storage-ringkas',
+  });
+
+  const pengguna = useLiveData<PenggunaAdmin[]>(adminApi.users, {
+    tables: ['profiles', 'wallets'],
+    channel: 'admin-ringkasan-pengguna',
+    intervalMs: 60_000,
   });
 
   const s = stats.data;
@@ -146,6 +153,42 @@ export default function AdminDashboard() {
               Semua foto ditekan otomatis ke maksimal 75 KB.
             </p>
           </>
+        )}
+      </div>
+
+      {/* Angka di atas menjawab "bagaimana kondisi sistem". Bagian ini menjawab
+          "sebenarnya data tiap orang seperti apa" — buka satu pengguna untuk
+          menelusuri dompet, transaksi, hutang, tabungan, dan anggarannya. */}
+      <div>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <div>
+            <h2 className="text-xl font-bold">Data per Pengguna</h2>
+            <p className="text-white/70 text-sm mt-0.5">
+              Ketuk satu nama untuk membuka seluruh datanya.
+            </p>
+          </div>
+          <LiveBadge lastUpdated={pengguna.lastUpdated} />
+        </div>
+
+        {pengguna.error && (
+          <div className="glass rounded-2xl p-4 flex items-center gap-3 border-danger-500/40">
+            <AlertTriangle size={20} className="text-danger-400 shrink-0" />
+            <p className="text-sm text-danger-400">{pengguna.error}</p>
+          </div>
+        )}
+
+        {pengguna.loading && !pengguna.data ? (
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => <div key={i} className="skeleton h-20 rounded-3xl" />)}
+          </div>
+        ) : (pengguna.data?.length ?? 0) === 0 ? (
+          <div className="glass rounded-3xl p-8 text-center">
+            <p className="text-white/70">Belum ada pengguna terdaftar.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {pengguna.data!.map((u) => <UserAccordion key={u.id} user={u} />)}
+          </div>
         )}
       </div>
     </div>

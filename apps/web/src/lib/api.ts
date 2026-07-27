@@ -1,9 +1,29 @@
 import axios from 'axios';
 import { supabase } from './supabase';
 
-const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+/**
+ * Menentukan alamat API.
+ *
+ * Di Vercel, frontend dan API berbagi domain yang sama, jadi alamat dasarnya
+ * harus KOSONG supaya permintaan jadi relatif ('/api/...') dan menuju domain
+ * yang sedang dibuka. Kalau tetap dipaku ke http://localhost:4000, aplikasi
+ * yang dibuka dari ponsel akan mencari server di ponsel itu sendiri — dan
+ * seluruh fitur AI serta panel admin langsung mati.
+ */
+function tentukanBaseURL(): string {
+  const dariEnv = import.meta.env.VITE_API_URL;
+  if (typeof dariEnv === 'string' && dariEnv.trim()) return dariEnv.trim();
 
-export const api = axios.create({ baseURL, timeout: 45000 });
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const lokal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    // Bukan di komputer sendiri -> API satu domain dengan halamannya.
+    if (!lokal) return '';
+  }
+  return 'http://localhost:4000';
+}
+
+export const api = axios.create({ baseURL: tentukanBaseURL(), timeout: 45000 });
 
 /**
  * Menempelkan token sesi ke setiap permintaan. Endpoint AI sekarang wajib login

@@ -8,6 +8,14 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon-64.png', 'apple-touch-icon.png'],
+      // Tanpa ini, service worker TIDAK didaftarkan saat `npm run dev`, dan
+      // browser hanya menawarkan pemasangan bila ada service worker aktif —
+      // itulah sebabnya tombol "Pasang" tidak pernah muncul selama pengembangan.
+      devOptions: {
+        enabled: true,
+        type: 'module',
+        navigateFallback: 'index.html',
+      },
       workbox: {
         // Versi baru langsung mengambil alih tanpa menunggu semua tab ditutup.
         skipWaiting: true,

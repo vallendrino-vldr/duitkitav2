@@ -158,6 +158,91 @@ router.get('/users', async (_req, res) => {
   }
 });
 
+/**
+ * Data LENGKAP satu pengguna, untuk tampilan akordion bertingkat di panel admin.
+ *
+ * Dibuat karena ringkasan sebelumnya hanya menyajikan angka gabungan seluruh
+ * pengguna — berguna untuk melihat kesehatan sistem, tapi tidak menjawab
+ * "sebenarnya si A ini datanya seperti apa". Semua bagian diambil sekaligus
+ * dalam satu permintaan supaya membuka satu pengguna tidak memicu 6 panggilan.
+ */
+router.get('/users/:userId/detail', async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const [profil, dompet, transaksi, hutang, target, anggaran, berulang] = await Promise.all([
+      supabaseAdmin.from('profiles')
+        .select('id, email, username, display_name, role, created_at')
+        .eq('id', userId).maybeSingle(),
+      supabaseAdmin.from('wallets')
+        .select('id, name, balance, initial_balance, created_at')
+        .eq('user_id', userId).order('created_at'),
+      supabaseAdmin.from('transactions')
+        .select('id, wallet_id, to_wallet_id, type, amount, category, title, receipt_url, created_at')
+        .eq('user_id', userId).order('created_at', { ascending: false }).limit(200),
+      supabaseAdmin.from('debts')
+        .select('id, title, amount, due_date, type, status, created_at')
+        .eq('user_id', userId).order('created_at', { ascending: false }),
+      supabaseAdmin.from('saving_goals')
+        .select('id, title, target_amount, current_amount, target_date, created_at')
+        .eq('user_id', userId).order('created_at', { ascending: false }),
+      supabaseAdmin.from('budgets')
+        .select('id, category, amount_limit, period_month')
+        .eq('user_id', userId).order('period_month', { ascending: false }),
+      supabaseAdmin.from('recurring_transactions')
+        .select('id, title, type, amount, category, interval_unit, interval_count, next_run, is_active')
+        .eq('user_id', userId).order('next_run'),
+    ]);
+
+    if (profil.error) throw profil.error;
+    if (!profil.data) return res.status(404).json({ error: 'Pengguna tidak ditemukan' });
+
+    const daftarTx = transaksi.data ?? [];
+    const masuk = daftarTx.filter((t) => t.type === 'income').reduce((n, t) => n + Number(t.amount || 0), 0);
+    const keluar = daftarTx.filter((t) => t.type === 'expense').reduce((n, t) => n + Number(t.amount || 0), 0);
+
+    // Pengeluaran per kategori, diurut dari yang terbesar.
+    const perKategori = new Map<string, number>();
+    for (const t of daftarTx) {
+      if (t.type !== 'expense') continue;
+      const k = t.category || 'Tanpa Kategori';
+      perKategori.set(k, (perKategori.get(k) ?? 0) + Number(t.amount || 0));
+    }
+
+    // Pemakaian penyimpanan pengguna ini saja.
+    let penyimpanan = { bytes: 0, jumlah: 0 };
+    try {
+      const berkas = await telusuriBucket(userId);
+      penyimpanan = { bytes: berkas.reduce((n, f) => n + f.size, 0), jumlah: berkas.length };
+    } catch { /* bucket kosong atau tidak terjangkau: biarkan nol */ }
+
+    res.json({
+      profil: profil.data,
+      dompet: dompet.data ?? [],
+      transaksi: daftarTx,
+      hutang: hutang.data ?? [],
+      target: target.data ?? [],
+      anggaran: anggaran.data ?? [],
+      berulang: berulang.data ?? [],
+      ringkasan: {
+        totalSaldo: (dompet.data ?? []).reduce((n, w) => n + Number(w.balance || 0), 0),
+        masuk,
+        keluar,
+        selisih: masuk - keluar,
+        jumlahTransaksi: daftarTx.length,
+        hutangBelumLunas: (hutang.data ?? []).filter((d) => d.status === 'unpaid').length,
+        perKategori: [...perKategori.entries()]
+          .map(([kategori, total]) => ({ kategori, total }))
+          .sort((a, b) => b.total - a.total),
+        penyimpanan,
+      },
+    });
+  } catch (error: any) {
+    console.error('Gagal memuat detail pengguna:', error);
+    res.status(500).json({ error: 'Gagal memuat detail pengguna' });
+  }
+});
+
 /** Membuat akun baru. Kata sandi berasal dari admin yang mengetiknya di panel. */
 router.post('/users', async (req, res) => {
   const { email, password, username, display_name, role, security_pin } = req.body ?? {};
