@@ -1,5 +1,4 @@
 import { useKualitasVisual } from '../lib/useKualitasVisual';
-import { useJedaSaatSibuk } from '../lib/useJedaSaatSibuk';
 
 /**
  * Latar aplikasi: aurora, objek 3D idle, kilau, dan partikel.
@@ -60,9 +59,6 @@ export default function AuroraBackground() {
   const kualitas = useKualitasVisual();
   const hemat = kualitas === 'hemat';
 
-  // Membekukan seluruh hiasan selama pengguna menggulir/menyentuh layar.
-  useJedaSaatSibuk();
-
   const jumlahCincin = hemat ? 5 : 9;
   const kilau = hemat ? KILAU.slice(0, 4) : KILAU;
   const partikel = hemat ? PARTIKEL.slice(0, 3) : PARTIKEL;
@@ -98,8 +94,17 @@ export default function AuroraBackground() {
       >
         <div className="ambient animate-coin-float">
           <div
-            className="ambient relative w-[min(26rem,88vw)] aspect-square animate-coin-spin"
-            style={{ transformStyle: 'preserve-3d' }}
+            // Di perangkat lemah bolanya TIDAK berputar, hanya melayang.
+            // Memutar ruang 3D memaksa GPU menyusun ulang seluruh tumpukan
+            // cincin setiap frame, dan itu bagian termahal dari latar ini.
+            // Dimatikan PERMANEN (bukan saat disentuh saja) supaya tidak pernah
+            // ada peralihan yang terlihat sebagai kedipan — bolanya tetap
+            // tampak sama mewahnya karena posisinya tetap miring dan bercahaya.
+            className={`ambient relative w-[min(26rem,88vw)] aspect-square ${hemat ? '' : 'animate-coin-spin'}`}
+            style={{
+              transformStyle: 'preserve-3d',
+              transform: hemat ? 'rotateX(18deg) rotateY(28deg)' : undefined,
+            }}
           >
             {Array.from({ length: jumlahCincin }).map((_, i) => (
               <div

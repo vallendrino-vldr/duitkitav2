@@ -24,32 +24,13 @@
   background-size: 100% 100%;
 }
 
-/* ===== BERHENTI SEJENAK SAAT DISENTUH =====
-   Inilah yang membuat aplikasi terasa "native". Saat pengguna menggulir atau
-   menyentuh layar, SELURUH hiasan latar dibekukan sehingga seluruh tenaga GPU
-   dipakai untuk mengikuti jari. Begitu jari berhenti, hiasannya hidup lagi.
-   Animasi hanya dijeda (play-state), bukan direset, jadi tidak ada lompatan
-   visual saat dilanjutkan. */
-html.sedang-sibuk .ambient,
-html.sedang-sibuk .ambient-bg {
-  animation-play-state: paused !important;
-}
-
-/* Efek kaca buram adalah pekerjaan termahal saat menggulir: browser harus
-   membaca ulang piksel di belakang SETIAP kartu, di SETIAP frame. Selama jari
-   bergerak, buramnya dilepas dan diganti warna solid yang setara — mata tidak
-   sempat menangkap bedanya saat layar bergerak, tetapi jarinya langsung terasa
-   lebih ringan. Hanya di perangkat sentuh; di laptop buramnya tetap utuh. */
-@media (hover: none) and (pointer: coarse) {
-  html.sedang-sibuk .glass,
-  html.sedang-sibuk .glass-strong,
-  html.sedang-sibuk [class*="backdrop-blur"] {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-  html.sedang-sibuk .glass { background-color: rgba(24, 28, 40, 0.82); }
-  html.sedang-sibuk .glass-strong { background-color: rgba(18, 22, 33, 0.92); }
-}
+/* CATATAN: pernah ada mekanisme yang menjeda animasi dan melepas efek buram
+   selama pengguna menggulir. Secara angka itu memang lebih ringan, TAPI mata
+   manusia menangkap peralihannya sebagai kedipan dan hentakan — hasilnya justru
+   terasa lebih rusak daripada sebelumnya. Sudah dibuang.
+   Pelajarannya: biaya render diturunkan secara PERMANEN, bukan dinyalakan dan
+   dimatikan bergantian. Apa pun yang berubah tampilannya saat disentuh akan
+   terlihat sebagai cacat, sehalus apa pun peralihannya. */
 
 html, body, #root {
   height: 100%;

@@ -40,6 +40,10 @@ export interface PenggunaAdmin {
 
 export interface DetailPengguna {
   profil: PenggunaAdmin;
+  /** URL bertanda tangan foto profil (dibuat server, berlaku 1 jam). */
+  avatarUrl: string | null;
+  /** Semua foto struk milik pengguna, terbaru dulu. */
+  galeri: Array<{ path: string; url: string | null; size: number; createdAt: string | null }>;
   dompet: Array<{ id: string; name: string; balance: number; initial_balance: number; created_at: string }>;
   transaksi: Array<{
     id: string; wallet_id: string; to_wallet_id: string | null;

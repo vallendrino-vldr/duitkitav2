@@ -163,9 +163,47 @@ export default function UserAccordion({ user }: { user: PenggunaAdmin }) {
               </div>
             </div>
 
-            <p className="text-micro text-white/60" data-selectable>
-              {detail.profil.email} · bergabung {formatTanggal(detail.profil.created_at)}
-            </p>
+            <div className="flex items-center gap-3">
+              {/* Foto profil asli, bukan sekadar huruf awal nama — admin perlu
+                  melihat apa yang benar-benar diunggah pengguna. */}
+              {detail.avatarUrl ? (
+                <img
+                  src={detail.avatarUrl}
+                  alt={`Foto profil ${user.username}`}
+                  className="w-12 h-12 rounded-full object-cover border border-white/20 shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-white/60 text-micro shrink-0">
+                  N/A
+                </div>
+              )}
+              <p className="text-micro text-white/60 min-w-0" data-selectable>
+                {detail.profil.email} · bergabung {formatTanggal(detail.profil.created_at)}
+              </p>
+            </div>
+
+            <Bagian judul="Foto Struk Tersimpan" ikon={ImageIcon} jumlah={detail.galeri.length} nada="accent">
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-2">
+                {detail.galeri.map((g) => (
+                  <a
+                    key={g.path}
+                    href={g.url ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block aspect-square rounded-xl overflow-hidden bg-white/5 border border-white/10 active:scale-95 transition-transform"
+                    title={`${formatTanggal(g.createdAt)} · ${formatBytes(g.size)}`}
+                  >
+                    {g.url ? (
+                      <img src={g.url} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="w-full h-full flex items-center justify-center text-micro text-white/50">
+                        gagal
+                      </span>
+                    )}
+                  </a>
+                ))}
+              </div>
+            </Bagian>
 
             {/* Akordion tingkat kedua */}
             <Bagian judul="Dompet" ikon={Wallet} jumlah={detail.dompet.length}>

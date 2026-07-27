@@ -209,15 +209,53 @@ router.get('/users/:userId/detail', async (req, res) => {
       perKategori.set(k, (perKategori.get(k) ?? 0) + Number(t.amount || 0));
     }
 
-    // Pemakaian penyimpanan pengguna ini saja.
+    // Pemakaian penyimpanan + DAFTAR FOTO milik pengguna ini.
+    //
+    // Bucket 'receipts' bersifat privat dan aturan keamanannya hanya mengizinkan
+    // seseorang membuka folder miliknya sendiri. Karena itu tautan gambar dibuat
+    // DI SERVER memakai kunci service_role, lalu dikirim sebagai URL bertanda
+    // tangan berumur satu jam. Tanpa ini, panel admin hanya bisa menampilkan
+    // nama berkas tanpa pernah bisa melihat isinya.
     let penyimpanan = { bytes: 0, jumlah: 0 };
+    let galeri: Array<{ path: string; url: string | null; size: number; createdAt: string | null }> = [];
     try {
       const berkas = await telusuriBucket(userId);
       penyimpanan = { bytes: berkas.reduce((n, f) => n + f.size, 0), jumlah: berkas.length };
-    } catch { /* bucket kosong atau tidak terjangkau: biarkan nol */ }
+
+      if (berkas.length) {
+        const { data: tanda } = await supabaseAdmin.storage
+          .from(BUCKET)
+          .createSignedUrls(berkas.map((f) => f.path), 3600);
+        const petaUrl = new Map((tanda ?? []).map((t) => [t.path ?? '', t.signedUrl]));
+        galeri = berkas
+          .map((f) => ({
+            path: f.path,
+            url: petaUrl.get(f.path) ?? null,
+            size: f.size,
+            createdAt: f.createdAt,
+          }))
+          .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+      }
+    } catch (e) {
+      console.error('Gagal menyiapkan galeri pengguna:', e);
+    }
+
+    // Foto profil disimpan di bucket yang sama, jadi juga perlu ditandatangani.
+    let avatarUrl: string | null = null;
+    try {
+      const { data: pref } = await supabaseAdmin
+        .from('user_preferences').select('avatar_url').eq('user_id', userId).maybeSingle();
+      if (pref?.avatar_url) {
+        const { data: t } = await supabaseAdmin.storage
+          .from(BUCKET).createSignedUrl(pref.avatar_url, 3600);
+        avatarUrl = t?.signedUrl ?? null;
+      }
+    } catch { /* tanpa foto profil bukan masalah */ }
 
     res.json({
       profil: profil.data,
+      avatarUrl,
+      galeri,
       dompet: dompet.data ?? [],
       transaksi: daftarTx,
       hutang: hutang.data ?? [],
