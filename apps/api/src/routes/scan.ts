@@ -92,7 +92,7 @@ function bersihkanJson(teks: string): unknown {
 /**
  * Menjalankan prompt, mencoba kunci cadangan bila kunci utama kena limit/tolak.
  */
-async function generate(parts: any[], jsonMode: boolean): Promise<string> {
+async function generate(parts: any[], jsonMode: boolean, instruksi?: string): Promise<string> {
   if (KUNCI.length === 0) throw new Error('GEMINI_API_KEY belum diatur');
 
   let terakhir: unknown;
@@ -103,7 +103,10 @@ async function generate(parts: any[], jsonMode: boolean): Promise<string> {
         model: MODEL,
         contents: [{ role: 'user', parts }],
         config: jsonMode
-          ? { systemInstruction: SYSTEM_INSTRUCTION, responseMimeType: 'application/json' }
+          ? {
+              systemInstruction: instruksi ?? SYSTEM_INSTRUCTION,
+              responseMimeType: 'application/json',
+            }
           : {},
       });
 
@@ -144,6 +147,74 @@ router.post('/receipt', requireUser, upload.single('receipt'), async (req, res) 
   } catch (error) {
     console.error('Error scanning receipt:', error);
     res.status(502).json({ error: 'Gagal membaca struk. Coba foto ulang lebih terang dan fokus.' });
+  }
+});
+
+/** Unggahan audio: format yang dihasilkan perekam browser berbeda-beda. */
+const uploadAudio = multer({
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^audio\//.test(file.mimetype) || /^video\/(mp4|webm)$/.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Format audio tidak didukung'));
+  },
+});
+
+const INSTRUKSI_SUARA =
+  'Kamu mengubah ucapan bahasa Indonesia sehari-hari menjadi satu transaksi keuangan.\n' +
+  'Balas HANYA JSON, tanpa markdown, tanpa backtick.\n' +
+  'Jika ucapannya adalah transaksi, balas: ' +
+  '{ "title": string, "amount": number, "type": "expense"|"income", "category": string, "ucapan": string }\n' +
+  'Aturan angka: pahami sebutan lisan Indonesia. ' +
+  '"lima puluh ribu"=50000, "seratus dua puluh ribu"=120000, "dua juta setengah"=2500000, ' +
+  '"gocap"=50000, "cepek"=100000, "goceng"=5000, "seceng"=1000, "ceban"=10000, ' +
+  '"25rb"/"25k"/"25 ribu"=25000, "1,5 juta"=1500000. Keluarkan angka polos tanpa titik/koma.\n' +
+  'type: "income" untuk gaji, bonus, terima uang, dibayar, jualan laku. ' +
+  'Selain itu "expense".\n' +
+  'category pilih SATU yang paling cocok dari: Makanan, Transportasi, Hiburan, Tagihan, ' +
+  'Belanja, Kesehatan, Gaji, Lainnya.\n' +
+  'title: ringkas, rapi, huruf kapital di awal, TANPA menyebut nominal. ' +
+  'Contoh "beli kopi di starbucks tiga puluh lima ribu" -> title "Beli Kopi di Starbucks".\n' +
+  'ucapan: salin apa adanya yang kamu dengar.\n' +
+  'Jika audio tidak berisi transaksi apa pun (kosong, berisik, atau ngobrol biasa), balas: ' +
+  '{ "bukan_transaksi": true, "ucapan": string }';
+
+/**
+ * Mengubah rekaman suara menjadi transaksi.
+ *
+ * Dibuat karena Safari di iPhone TIDAK mendukung Web Speech API sama sekali,
+ * sehingga tombol catat suara mati total di seluruh perangkat Apple. Di sini
+ * audionya dikirim apa adanya ke Gemini, yang sekaligus mendengar DAN menyusun
+ * datanya — jadi hasilnya juga lebih pintar daripada pengenalan kata mentah
+ * yang dulu cuma menebak angka lewat pencocokan pola.
+ */
+router.post('/voice', requireUser, uploadAudio.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Tidak ada rekaman suara' });
+
+  try {
+    const teks = await generate(
+      [
+        { inlineData: { data: req.file.buffer.toString('base64'), mimeType: req.file.mimetype } },
+        { text: 'Dengarkan rekaman ini lalu ubah menjadi satu transaksi keuangan sesuai aturan.' },
+      ],
+      true,
+      INSTRUKSI_SUARA,
+    );
+
+    const mentah = bersihkanJson(teks) as Record<string, unknown>;
+
+    if (mentah && mentah.bukan_transaksi === true) {
+      const ucapan = String(mentah.ucapan ?? '').trim();
+      return res.status(422).json({
+        error: ucapan
+          ? `Kedengarannya "${ucapan}" — itu belum kelihatan seperti transaksi. Sebut nominalnya juga ya.`
+          : 'Suaranya nggak kedengeran. Coba ngomong lebih dekat ke mikrofon.',
+      });
+    }
+
+    res.json({ ...validasi(mentah), ucapan: String(mentah.ucapan ?? '') });
+  } catch (error) {
+    console.error('Error memproses suara:', error);
+    res.status(502).json({ error: 'Gagal memproses suara. Coba ulangi.' });
   }
 });
 

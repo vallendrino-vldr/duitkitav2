@@ -39,6 +39,8 @@ export default function Add() {
   // bisa lolos sebelum re-render dan memicu beberapa sesi pengenalan sekaligus.
   const isListeningRef = useRef(false);
   const recognitionRef = useRef<any>(null);
+  // Jalur cadangan untuk Safari iOS yang tidak punya Web Speech API.
+  const perekamRef = useRef<MediaRecorder | null>(null);
   
   const [formData, setFormData] = useState({
     wallet_id: wallets?.[0]?.id || '',
@@ -212,27 +214,112 @@ export default function Add() {
     setIsCameraOpen(false);
   };
 
+  /**
+   * Jalur suara untuk browser tanpa Web Speech API (terutama Safari iPhone/iPad).
+   * Suaranya direkam lalu dikirim ke server; Gemini yang mendengar sekaligus
+   * menyusun datanya, jadi kalimat utuh seperti "beli kopi tiga puluh lima ribu"
+   * dipahami sebagai satu kesatuan, bukan angka yang dicomot terpisah.
+   */
+  const rekamSuara = async () => {
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      toast.error('Perangkat ini tidak bisa merekam suara. Silakan isi manual.');
+      return;
+    }
+
+    let aliran: MediaStream;
+    try {
+      aliran = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err: any) {
+      toast.error(
+        err?.name === 'NotAllowedError'
+          ? 'Izin mikrofon ditolak. Izinkan lewat pengaturan Safari, lalu coba lagi.'
+          : 'Mikrofon tidak bisa dipakai. Silakan isi manual.',
+      );
+      return;
+    }
+
+    // Safari menghasilkan mp4/aac, Chrome menghasilkan webm/opus. Dipilih yang
+    // didukung perangkatnya, dan tipenya ikut dikirim supaya server tahu.
+    const kandidat = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
+    const tipe = kandidat.find((t) => MediaRecorder.isTypeSupported(t)) || '';
+
+    const perekam = new MediaRecorder(aliran, tipe ? { mimeType: tipe } : undefined);
+    perekamRef.current = perekam;
+    const potongan: BlobPart[] = [];
+
+    perekam.ondataavailable = (e) => { if (e.data.size > 0) potongan.push(e.data); };
+
+    perekam.onstop = async () => {
+      aliran.getTracks().forEach((t) => t.stop());
+      perekamRef.current = null;
+      isListeningRef.current = false;
+      setIsMicOpen(false);
+
+      const blob = new Blob(potongan, { type: tipe || 'audio/webm' });
+      if (blob.size < 1200) {
+        toast.error('Rekamannya terlalu pendek. Tahan sebentar sambil bicara.');
+        return;
+      }
+
+      setIsLoading(true);
+      const toastId = toast.loading('Mendengarkan ucapanmu...');
+      try {
+        const fd = new FormData();
+        fd.append('audio', blob, `suara.${tipe.includes('mp4') ? 'm4a' : 'webm'}`);
+        const { data } = await api.post('/api/scan/voice', fd);
+
+        setFormData((prev) => ({
+          ...prev,
+          title: data.title || prev.title,
+          amount: data.amount ? String(data.amount) : prev.amount,
+          type: data.type || prev.type,
+          category: data.category || prev.category,
+        }));
+        toast.success(data.ucapan ? `Dikenali: "${data.ucapan}"` : 'Berhasil dicatat!', { id: toastId });
+      } catch (error) {
+        toast.error(pesanApi(error, 'Gagal memproses suara'), { id: toastId });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    isListeningRef.current = true;
+    setIsMicOpen(true);
+    perekam.start();
+
+    // Batas aman: kalau pengguna lupa menekan berhenti, rekaman ditutup sendiri.
+    setTimeout(() => {
+      if (perekamRef.current?.state === 'recording') perekamRef.current.stop();
+    }, 15000);
+  };
+
   const handleVoice = async () => {
     // Kunci: ketukan kedua saat masih mendengarkan akan menutup sesi, bukan
     // menumpuk sesi baru. Dulu tanpa penjaga ini, ketukan beruntun membuat
     // Web Speech API melempar InvalidStateError bertubi-tubi.
     if (isListeningRef.current) {
+      // Ketukan kedua = selesai bicara. Untuk jalur rekaman, inilah pemicu
+      // pengiriman audionya; untuk Web Speech, cukup dihentikan.
+      try { perekamRef.current?.stop(); } catch { /* abaikan */ }
       try { recognitionRef.current?.stop?.(); } catch { /* abaikan */ }
       isListeningRef.current = false;
-      setIsMicOpen(false);
+      if (!perekamRef.current) setIsMicOpen(false);
       return;
     }
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
+    // Safari di iPhone/iPad TIDAK punya Web Speech API sama sekali, jadi tombol
+    // ini dulu mati total di semua perangkat Apple. Jalur cadangannya: rekam
+    // suaranya lalu kirim ke server, biarkan Gemini yang mendengar sekaligus
+    // menyusun datanya. Hasilnya juga lebih pintar karena kalimat utuh dipahami,
+    // bukan sekadar angka dicomot dengan pencocokan pola.
     if (!SpeechRecognition) {
-      // Jujur saja kalau tidak didukung. Versi lama malah mengisi form dengan
-      // data karangan ("Beli Makan Siang / 45000") seolah-olah berhasil.
-      // Firefox memang belum mendukung Web Speech API sama sekali.
-      toast.error('Browser ini tidak mendukung input suara. Coba pakai Chrome atau Edge.');
+      await rekamSuara();
       return;
     }
+
 
     // Minta izin mikrofon LEBIH DULU. Kalau langsung memanggil recognition.start(),
     // penolakan izin hanya muncul sebagai kode error samar 'not-allowed' tanpa
@@ -521,9 +608,15 @@ export default function Add() {
             </div>
             <h3 className="text-accent-300 font-semibold text-xl">Mendengarkan…</h3>
             <p className="text-white/70 text-sm mt-2 text-center">Contoh: "Beli kopi lima puluh ribu"</p>
-            <button type="button" onClick={handleVoice} className="btn-ghost mt-8">
-              Batal
+            {/* Label netral: pada Safari ketukan ini MENGIRIM rekaman, pada
+                Chrome ia menutup sesi pengenalan. "Selesai Bicara" benar untuk
+                keduanya, sedangkan "Batal" akan menyesatkan di jalur rekaman. */}
+            <button type="button" onClick={() => void handleVoice()} className="btn-primary mt-8 px-8">
+              Selesai Bicara
             </button>
+            <p className="text-white/60 text-micro mt-3 text-center">
+              Contoh: "beli kopi tiga puluh lima ribu"
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
