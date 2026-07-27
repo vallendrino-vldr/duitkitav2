@@ -22,10 +22,36 @@ const MODEL = config.geminiModel;
 const KUNCI = config.geminiKeys;
 
 const SYSTEM_INSTRUCTION =
-  'Parse financial data. Return ONLY valid JSON exactly matching this schema: ' +
+  'Parse financial data from a receipt image. Return ONLY valid JSON, no markdown, no backticks.\n' +
+  'If the image IS a receipt/invoice/bill, return: ' +
   '{ "title": string, "amount": number, "type": "expense"|"income", "category": string }. ' +
   'Amount must be a plain number without currency symbols or separators. ' +
-  'Category and title must be in Bahasa Indonesia. Do not include markdown formatting or backticks.';
+  'Category and title must be in Bahasa Indonesia.\n' +
+  'If the image is NOT a receipt, return instead: ' +
+  '{ "bukan_struk": true, "isi_gambar": string } where isi_gambar names what the picture ' +
+  'actually shows, in Bahasa Indonesia, 1-4 words (contoh: "wajah orang", "kucing", ' +
+  '"papan ketik laptop", "pemandangan", "layar komputer", "makanan").';
+
+/**
+ * Ledekan ringan saat penggunanya memotret benda yang jelas bukan struk.
+ *
+ * Sebelumnya semua kegagalan dijawab "Gagal membaca struk" — pengguna mengira
+ * aplikasinya rusak, padahal AI-nya bekerja dengan benar dan memang fotonya
+ * yang salah. Menyebut isi gambarnya membuat sebabnya langsung jelas.
+ */
+function ledekan(isi: string): string {
+  const bersih = (isi || 'sesuatu').trim().toLowerCase();
+  const pilihan = [
+    `Ini ${bersih}, bukan struk 😅 Coba foto struknya ya.`,
+    `Yang kefoto malah ${bersih}. Struknya mana nih?`,
+    `AI-nya bingung — dia liat ${bersih}, bukan struk belanja.`,
+    `Hmm, ${bersih} ga bisa dijadiin catatan pengeluaran. Foto struknya dong.`,
+    `Gagal baca: ini ${bersih}. Arahin ke struk, bukan ke ${bersih} 😄`,
+  ];
+  // Dipilih dari panjang teks, bukan acak, supaya isi gambar yang sama
+  // selalu memberi jawaban sama dan tidak terasa seperti kesalahan acak.
+  return pilihan[bersih.length % pilihan.length];
+}
 
 export interface HasilParsing {
   title: string;
@@ -106,10 +132,18 @@ router.post('/receipt', requireUser, upload.single('receipt'), async (req, res) 
       true,
     );
 
-    res.json(validasi(bersihkanJson(teks)));
+    const mentah = bersihkanJson(teks) as Record<string, unknown>;
+
+    // Bukan struk: jawab 422 (permintaannya sah, isinya yang tidak cocok)
+    // dengan pesan yang menyebut isi gambarnya, bukan galat teknis.
+    if (mentah && mentah.bukan_struk === true) {
+      return res.status(422).json({ error: ledekan(String(mentah.isi_gambar ?? 'sesuatu')) });
+    }
+
+    res.json(validasi(mentah));
   } catch (error) {
     console.error('Error scanning receipt:', error);
-    res.status(502).json({ error: 'Gagal membaca struk' });
+    res.status(502).json({ error: 'Gagal membaca struk. Coba foto ulang lebih terang dan fokus.' });
   }
 });
 
