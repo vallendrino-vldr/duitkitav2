@@ -59,8 +59,24 @@ export default function Dashboard() {
     return () => { aktif = false; };
   }, [profilTerbuka]);
 
-  const refresh = () => {
-    void Promise.allSettled([fetchProfile(), fetchWallets(), fetchTransactions()]);
+  // Tombol muat ulang WAJIB memberi tanda. Sebelumnya ia menembakkan permintaan
+  // diam-diam: kalau datanya kebetulan sama, layar tidak berubah sedikit pun dan
+  // tombolnya terasa rusak. Sekarang ikonnya berputar, ditahan minimal 600ms
+  // supaya perputarannya sempat terlihat, lalu ditutup pesan singkat.
+  const [sedangMuat, setSedangMuat] = useState(false);
+
+  const refresh = async () => {
+    if (sedangMuat) return;
+    setSedangMuat(true);
+    const mulai = Date.now();
+    try {
+      await Promise.allSettled([fetchProfile(), fetchWallets(), fetchTransactions()]);
+      const sisa = 600 - (Date.now() - mulai);
+      if (sisa > 0) await new Promise((r) => setTimeout(r, sisa));
+      toast.success('Data diperbarui', { duration: 1500 });
+    } finally {
+      setSedangMuat(false);
+    }
   };
 
   const handleCreateWallet = async (e: React.FormEvent) => {
@@ -218,11 +234,13 @@ export default function Dashboard() {
             </button>
             <button
               type="button"
-              onClick={refresh}
+              onClick={() => void refresh()}
+              disabled={sedangMuat}
               aria-label="Muat ulang data"
-              className="w-11 h-11 bg-white/10 rounded-full flex items-center justify-center text-white/80 backdrop-blur-md border border-white/20 shadow-lg"
+              aria-busy={sedangMuat}
+              className="w-11 h-11 shrink-0 bg-white/10 rounded-full flex items-center justify-center text-white/80 backdrop-blur-md border border-white/20 shadow-lg active:scale-90 transition-transform disabled:opacity-60"
             >
-              <RefreshCw size={20} />
+              <RefreshCw size={20} className={sedangMuat ? 'animate-spin' : ''} />
             </button>
           </div>
 

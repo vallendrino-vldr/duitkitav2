@@ -22,6 +22,10 @@ export default defineConfig({
         clientsClaim: true,
         cleanupOutdatedCaches: true,
         navigateFallback: '/index.html',
+        // index.html JANGAN disimpan sebagai salinan permanen: berkas inilah
+        // yang menunjuk ke berkas kode terbaru. Kalau ia ikut tersimpan, aplikasi
+        // terpasang akan terus menunjuk ke kode lama walau versi baru sudah ada.
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             // Data keuangan TIDAK PERNAH di-cache. Ini inti keluhan "aplikasi
