@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import {
-  User, Wallet, Tags, Shield, LogOut, ChevronRight, X, Plus, Trash2, Save, Download,
-  ArrowLeftRight, Wallet2, Repeat, BarChart3, Receipt, SlidersHorizontal, ShieldCheck,
-  Settings as SettingsIcon,
+import { 
+  LogOut, Shield, ShieldCheck, Tags, User, Wallet, ChevronRight, X,
+  ArrowLeftRight, Wallet2, Repeat, BarChart3, Receipt, SlidersHorizontal, Trash2, Plus, Save, BookOpen, Download,
+  Settings as SettingsIcon, Calendar as CalendarIcon
 } from 'lucide-react';
 import { usePWAInstall } from '../lib/usePWAInstall';
 import { supabase } from '../lib/supabase';
@@ -15,7 +15,7 @@ import Signature from '../components/Signature';
 import toast from 'react-hot-toast';
 
 export default function Settings() {
-  const { wallets, setWallets, clearStore } = useFinanceStore();
+  const { wallets, activeTabId, setWallets, clearStore } = useFinanceStore();
   const { signOut, profile: profilAuth } = useAuth();
   const peran = profilAuth?.role;
   const { status: statusPasang, pasang: pasangAplikasi } = usePWAInstall();
@@ -99,7 +99,7 @@ export default function Settings() {
       const dompetBaru = await safeMutateOne<any>(
         supabase
           .from('wallets')
-          .insert({ user_id: profile.id, name: newWalletName, balance: 0, initial_balance: 0 })
+          .insert({ user_id: profile.id, tab_id: activeTabId, name: newWalletName, balance: 0, initial_balance: 0 })
           .select(),
         'Gagal menambah dompet',
       );
@@ -176,6 +176,8 @@ export default function Settings() {
     { to: '/transfer', icon: ArrowLeftRight, label: 'Transfer Dompet', warna: 'bg-brand-400/15 text-brand-300' },
     { to: '/budget', icon: Wallet2, label: 'Anggaran Bulanan', warna: 'bg-warn-400/15 text-warn-400' },
     { to: '/recurring', icon: Repeat, label: 'Transaksi Berulang', warna: 'bg-accent-500/15 text-accent-300' },
+    { to: '/calendar', icon: CalendarIcon, label: 'Kalender Interaktif', warna: 'bg-purple-500/15 text-purple-400' },
+    { to: '/cashbook', icon: BookOpen, label: 'Buku Kas & Analisis', warna: 'bg-teal-500/15 text-teal-400' },
     { to: '/reports', icon: BarChart3, label: 'Laporan & Statistik', warna: 'bg-ok-400/15 text-ok-400' },
     { to: '/receipts', icon: Receipt, label: 'Galeri Struk', warna: 'bg-brand-400/15 text-brand-300' },
     { to: '/preferences', icon: SlidersHorizontal, label: 'Preferensi & Data', warna: 'bg-accent-500/15 text-accent-300' },

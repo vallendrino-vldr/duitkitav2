@@ -8,7 +8,7 @@ import { safeMutate, pesanError } from '../lib/db';
 import { compressImage } from '../utils/imageCompressor';
 
 export default function Savings() {
-  const { wallets, fetchWallets, fetchTransactions } = useFinanceStore();
+  const { wallets, activeTabId, fetchWallets, fetchTransactions } = useFinanceStore();
   const [goals, setGoals] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -29,14 +29,14 @@ export default function Savings() {
 
   useEffect(() => {
     fetchGoals();
-  }, []);
+  }, [activeTabId]);
 
   const fetchGoals = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const data = await safeMutate<any[]>(
-        supabase.from('saving_goals').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('saving_goals').select('*').eq('user_id', user.id).eq('tab_id', activeTabId).order('created_at', { ascending: false }),
         'Gagal memuat target',
       );
       setGoals(data ?? []);
@@ -89,6 +89,7 @@ export default function Savings() {
       // diurutkan, difilter, atau diubah tanpa mengedit teks judul.
       const goalData = {
         user_id: user.id,
+        tab_id: activeTabId,
         title: newGoal.title.trim(),
         target_amount: Number(newGoal.target_amount),
         current_amount: 0,
@@ -123,6 +124,7 @@ export default function Savings() {
       const transactionData = {
         id: crypto.randomUUID(),
         user_id: user.id,
+        tab_id: activeTabId,
         wallet_id: addFunds.wallet_id,
         type: 'expense' as const,
         amount: Number(addFunds.amount),

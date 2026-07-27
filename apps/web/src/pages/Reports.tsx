@@ -24,6 +24,7 @@ import { useFinanceStore } from '../store/useFinanceStore';
 import type { Transaction } from '../store/useFinanceStore';
 import { safeMutate, pesanError } from '../lib/db';
 import { api, pesanApi } from '../lib/api';
+import { rentangSiklus } from '../utils/dateUtils';
 
 const NAMA_BULAN = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -173,14 +174,47 @@ function selCsv(nilai: string): string {
   return /[",]/.test(bersih) ? `"${bersih.replace(/"/g, '""')}"` : bersih;
 }
 
+type TipeLaporan = 'bulanan' | 'mingguan' | 'kustom';
+
+function formatTanggalMingguan(senin: Date): string {
+  const minggu = new Date(senin.getTime() + 6 * 86400000);
+  const dSenin = senin.getDate();
+  const dMinggu = minggu.getDate();
+  const mSenin = NAMA_BULAN[senin.getMonth()].slice(0, 3);
+  const mMinggu = NAMA_BULAN[minggu.getMonth()].slice(0, 3);
+  const ySenin = senin.getFullYear();
+  const yMinggu = minggu.getFullYear();
+
+  if (ySenin !== yMinggu) {
+    return `${dSenin} ${mSenin} ${ySenin} - ${dMinggu} ${mMinggu} ${yMinggu}`;
+  }
+  if (mSenin !== mMinggu) {
+    return `${dSenin} ${mSenin} - ${dMinggu} ${mMinggu} ${ySenin}`;
+  }
+  return `${dSenin} - ${dMinggu} ${mSenin} ${ySenin}`;
+}
+
 export default function Reports() {
-  const { wallets, fetchWallets } = useFinanceStore();
+  const { wallets, fetchWallets, activeTabId } = useFinanceStore();
 
   const sekarang = new Date();
   const [periode, setPeriode] = useState({
     tahun: sekarang.getFullYear(),
     bulan: sekarang.getMonth(),
   });
+  const [tipeLaporan, setTipeLaporan] = useState<TipeLaporan>('bulanan');
+  const [rentangMingguan, setRentangMingguan] = useState<Date>(() => {
+    const d = new Date();
+    const day = d.getDay() === 0 ? 7 : d.getDay();
+    d.setDate(d.getDate() - day + 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [rentangKustom, setRentangKustom] = useState({
+    mulai: sekarang.toISOString().split('T')[0],
+    selesai: sekarang.toISOString().split('T')[0],
+  });
+  const [startDay, setStartDay] = useState(1);
   const [transaksi, setTransaksi] = useState<Transaction[]>([]);
   const [memuat, setMemuat] = useState(true);
   const [insight, setInsight] = useState<string | null>(null);
@@ -195,24 +229,49 @@ export default function Reports() {
     let dibatalkan = false;
 
     const muat = async () => {
+      if (!activeTabId) return;
       setMemuat(true);
       setInsight(null);
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error('Sesi kamu sudah berakhir. Silakan masuk ulang.');
 
-        // Sekali ambil untuk DUA bulan (bulan lalu + bulan ini) supaya
-        // perbandingan tidak butuh permintaan jaringan kedua.
-        const mulai = new Date(periode.tahun, periode.bulan - 1, 1);
-        const batas = new Date(periode.tahun, periode.bulan + 1, 1);
+        const prefRow = await safeMutate<{ tanggal_mulai_bulan: number }[]>(
+          supabase.from('user_preferences').select('tanggal_mulai_bulan').eq('user_id', user.id).limit(1),
+          'Gagal memuat preferensi bulan'
+        );
+        const tgl = prefRow?.[0]?.tanggal_mulai_bulan ?? 1;
+        if (!dibatalkan) setStartDay(tgl);
+
+        let mulaiCari: Date;
+        let batasCari: Date;
+
+        if (tipeLaporan === 'bulanan') {
+          mulaiCari = rentangSiklus(periode.tahun, periode.bulan - 1, tgl).mulai;
+          batasCari = rentangSiklus(periode.tahun, periode.bulan, tgl).selesai;
+        } else if (tipeLaporan === 'mingguan') {
+          mulaiCari = new Date(rentangMingguan);
+          mulaiCari.setDate(mulaiCari.getDate() - 7);
+          batasCari = new Date(rentangMingguan);
+          batasCari.setDate(batasCari.getDate() + 7);
+        } else {
+          const m = new Date(rentangKustom.mulai);
+          m.setHours(0, 0, 0, 0);
+          const s = new Date(rentangKustom.selesai);
+          s.setHours(23, 59, 59, 999);
+          batasCari = new Date(s.getTime() + 1);
+          const durasi = batasCari.getTime() - m.getTime();
+          mulaiCari = new Date(m.getTime() - durasi);
+        }
 
         const data = await safeMutate<Transaction[]>(
           supabase
             .from('transactions')
             .select('id, wallet_id, to_wallet_id, type, amount, category, title, created_at')
             .eq('user_id', user.id)
-            .gte('created_at', mulai.toISOString())
-            .lt('created_at', batas.toISOString())
+            .eq('tab_id', activeTabId)
+            .gte('created_at', mulaiCari.toISOString())
+            .lt('created_at', batasCari.toISOString())
             .order('created_at', { ascending: true }),
           'Gagal memuat data laporan',
         );
@@ -232,7 +291,7 @@ export default function Reports() {
 
     muat();
     return () => { dibatalkan = true; };
-  }, [periode.tahun, periode.bulan]);
+  }, [periode.tahun, periode.bulan, tipeLaporan, rentangMingguan, rentangKustom, activeTabId]);
 
   const namaDompet = useMemo(() => {
     const peta = new Map<string, string>();
@@ -250,7 +309,16 @@ export default function Reports() {
   }, [periode.tahun]);
 
   const laporan = useMemo(() => {
-    const awalBulanIni = new Date(periode.tahun, periode.bulan, 1).getTime();
+    let awalBulanIni: number;
+    if (tipeLaporan === 'bulanan') {
+      awalBulanIni = rentangSiklus(periode.tahun, periode.bulan, startDay).mulai.getTime();
+    } else if (tipeLaporan === 'mingguan') {
+      awalBulanIni = rentangMingguan.getTime();
+    } else {
+      const m = new Date(rentangKustom.mulai);
+      m.setHours(0, 0, 0, 0);
+      awalBulanIni = m.getTime();
+    }
     const bulanIni: Transaction[] = [];
     const bulanLalu: Transaction[] = [];
 
@@ -295,12 +363,20 @@ export default function Reports() {
       deltaPengeluaran: bandingkan(pengeluaran, pengeluaranLalu),
       deltaPemasukan: bandingkan(pemasukan, pemasukanLalu),
     };
-  }, [transaksi, periode.tahun, periode.bulan]);
+  }, [transaksi, periode.tahun, periode.bulan, startDay, tipeLaporan, rentangMingguan, rentangKustom]);
+
+  const labelPeriodeLengkap = useMemo(() => {
+    if (tipeLaporan === 'mingguan') return formatTanggalMingguan(rentangMingguan);
+    if (tipeLaporan === 'kustom') return `${rentangKustom.mulai} s/d ${rentangKustom.selesai}`;
+    return `${NAMA_BULAN[periode.bulan]} ${periode.tahun}`;
+  }, [tipeLaporan, rentangMingguan, rentangKustom, periode.tahun, periode.bulan]);
 
   const bulanLaluLabel = useMemo(() => {
+    if (tipeLaporan === 'mingguan') return 'minggu lalu';
+    if (tipeLaporan === 'kustom') return 'periode sebelumnya';
     const d = new Date(periode.tahun, periode.bulan - 1, 1);
     return `${NAMA_BULAN[d.getMonth()]} ${d.getFullYear()}`;
-  }, [periode.tahun, periode.bulan]);
+  }, [periode.tahun, periode.bulan, tipeLaporan]);
 
   const hari = new Date();
   const bisaMaju =
@@ -377,7 +453,7 @@ export default function Reports() {
       const tautan = document.createElement('a');
       const url = URL.createObjectURL(berkas);
       tautan.href = url;
-      tautan.download = `laporan-duitkita-${periode.tahun}-${duaDigit(periode.bulan + 1)}.csv`;
+      tautan.download = `laporan-duitkita-${labelPeriodeLengkap.replace(/\//g, '-').replace(/ /g, '_')}.csv`;
       document.body.appendChild(tautan);
       tautan.click();
       tautan.remove();
@@ -441,7 +517,7 @@ export default function Reports() {
     >
       <style>{GAYA_CETAK}</style>
 
-      <div className="flex flex-col items-center mb-8 print:hidden">
+      <div className="flex flex-col items-center mb-6 print:hidden">
         <motion.div
           animate={{ y: [0, -10, 0], scale: [1, 1.05, 1] }}
           transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
@@ -453,58 +529,107 @@ export default function Reports() {
         <p className="text-white/70 text-sm mt-1 text-center">Lihat ke mana saja uangmu pergi bulan ini</p>
       </div>
 
-      {/* === PEMILIH BULAN === */}
+      <div className="flex bg-ink-900 rounded-full p-1 mb-4 print:hidden mx-auto max-w-sm">
+        {(['bulanan', 'mingguan', 'kustom'] as TipeLaporan[]).map((tipe) => (
+          <button
+            key={tipe}
+            type="button"
+            onClick={() => setTipeLaporan(tipe)}
+            className={`flex-1 py-1.5 px-3 text-sm font-semibold rounded-full capitalize transition-colors ${
+              tipeLaporan === tipe ? 'bg-white text-black' : 'text-white/70 hover:text-white'
+            }`}
+          >
+            {tipe}
+          </button>
+        ))}
+      </div>
+
+      {/* === PEMILIH WAKTU === */}
       <div className="glass rounded-3xl p-3 mb-6 print:hidden">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => geserBulan(-1)}
-            className="icon-btn shrink-0"
-            aria-label="Bulan sebelumnya"
-          >
-            <ChevronLeft size={20} />
-          </button>
+        {tipeLaporan === 'bulanan' && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => geserBulan(-1)}
+              className="icon-btn shrink-0"
+              aria-label="Bulan sebelumnya"
+            >
+              <ChevronLeft size={20} />
+            </button>
 
-          <div className="flex-1 grid grid-cols-2 gap-2">
-            <select
-              className="field"
-              value={periode.bulan}
-              onChange={(e) => setPeriode({ ...periode, bulan: Number(e.target.value) })}
-              aria-label="Pilih bulan"
+            <div className="flex-1 grid grid-cols-2 gap-2">
+              <select
+                className="field"
+                value={periode.bulan}
+                onChange={(e) => setPeriode({ ...periode, bulan: Number(e.target.value) })}
+                aria-label="Pilih bulan"
+              >
+                {NAMA_BULAN.map((nama, i) => (
+                  <option key={nama} value={i} className="bg-ink-900">{nama}</option>
+                ))}
+              </select>
+              <select
+                className="field"
+                value={periode.tahun}
+                onChange={(e) => setPeriode({ ...periode, tahun: Number(e.target.value) })}
+                aria-label="Pilih tahun"
+              >
+                {daftarTahun.map((t) => (
+                  <option key={t} value={t} className="bg-ink-900">{t}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => geserBulan(1)}
+              disabled={!bisaMaju}
+              className="icon-btn shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Bulan berikutnya"
             >
-              {NAMA_BULAN.map((nama, i) => (
-                <option key={nama} value={i} className="bg-ink-900">{nama}</option>
-              ))}
-            </select>
-            <select
-              className="field"
-              value={periode.tahun}
-              onChange={(e) => setPeriode({ ...periode, tahun: Number(e.target.value) })}
-              aria-label="Pilih tahun"
-            >
-              {daftarTahun.map((t) => (
-                <option key={t} value={t} className="bg-ink-900">{t}</option>
-              ))}
-            </select>
+              <ChevronRight size={20} />
+            </button>
           </div>
+        )}
 
-          <button
-            type="button"
-            onClick={() => geserBulan(1)}
-            disabled={!bisaMaju}
-            className="icon-btn shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            aria-label="Bulan berikutnya"
-          >
-            <ChevronRight size={20} />
-          </button>
-        </div>
+        {tipeLaporan === 'mingguan' && (
+          <div className="flex items-center gap-2">
+            <button type="button" className="icon-btn shrink-0" onClick={() => setRentangMingguan(d => new Date(d.getTime() - 7 * 86400000))}>
+              <ChevronLeft size={20} />
+            </button>
+            <div className="flex-1 text-center text-white font-semibold text-sm">
+              {formatTanggalMingguan(rentangMingguan)}
+            </div>
+            <button type="button" className="icon-btn shrink-0" onClick={() => setRentangMingguan(d => new Date(d.getTime() + 7 * 86400000))}>
+              <ChevronRight size={20} />
+            </button>
+          </div>
+        )}
+
+        {tipeLaporan === 'kustom' && (
+          <div className="flex items-center gap-2">
+            <input 
+              type="date" 
+              className="field flex-1 text-sm appearance-none text-center" 
+              value={rentangKustom.mulai}
+              onChange={e => setRentangKustom(r => ({ ...r, mulai: e.target.value }))}
+            />
+            <span className="text-white/50">-</span>
+            <input 
+              type="date" 
+              className="field flex-1 text-sm appearance-none text-center"
+              value={rentangKustom.selesai}
+              onChange={e => setRentangKustom(r => ({ ...r, selesai: e.target.value }))}
+            />
+          </div>
+        )}
       </div>
 
       {/* === AREA YANG IKUT TERCETAK === */}
       <div id="area-laporan" className="space-y-6">
         <div className="hidden print:block mb-4">
           <h1 className="text-xl font-bold">Laporan Keuangan DuitKita</h1>
-          <p className="text-sm">Periode: {NAMA_BULAN[periode.bulan]} {periode.tahun}</p>
+          <p className="text-sm">Periode: {labelPeriodeLengkap}</p>
         </div>
 
         {memuat ? (
@@ -673,7 +798,7 @@ export default function Reports() {
         </div>
 
         <p className="text-white/70 text-micro mt-3">
-          Berkas CSV berisi {laporan.jumlahTransaksi} transaksi bulan {NAMA_BULAN[periode.bulan]} {periode.tahun}.
+          Berkas CSV berisi {laporan.jumlahTransaksi} transaksi periode {labelPeriodeLengkap}.
         </p>
       </div>
     </motion.div>

@@ -3,9 +3,18 @@ import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
 import { safeMutate, PROFILE_COLUMNS } from '../lib/db';
 
+export interface Tab {
+  id: string;
+  user_id?: string;
+  name: string;
+  icon: string;
+  created_at: string;
+}
+
 export interface Wallet {
   id: string;
   user_id?: string;
+  tab_id?: string;
   name: string;
   balance: number;
   initial_balance?: number;
@@ -14,6 +23,7 @@ export interface Wallet {
 export interface Transaction {
   id: string;
   user_id?: string;
+  tab_id?: string;
   wallet_id: string;
   to_wallet_id?: string | null;
   type: 'income' | 'expense' | 'transfer';
@@ -45,6 +55,8 @@ interface FinanceState {
   ownerId: string | null;
 
   /** `null` berarti BELUM PERNAH dimuat. Array (termasuk kosong) berarti sudah dimuat. */
+  tabs: Tab[] | null;
+  activeTabId: string | null;
   wallets: Wallet[] | null;
   transactions: Transaction[] | null;
   profile: Profile | null;
@@ -52,8 +64,11 @@ interface FinanceState {
 
   isLoadingWallets: boolean;
   isLoadingTransactions: boolean;
+  isLoadingTabs: boolean;
   lastError: string | null;
 
+  setTabs: (tabs: Tab[]) => void;
+  setActiveTabId: (id: string) => void;
   setWallets: (wallets: Wallet[]) => void;
   setTransactions: (transactions: Transaction[]) => void;
   setProfile: (profile: Profile | null) => void;
@@ -62,6 +77,7 @@ interface FinanceState {
   adoptUser: (userId: string | null) => void;
   clearStore: () => void;
 
+  fetchTabs: () => Promise<void>;
   fetchWallets: () => Promise<void>;
   fetchTransactions: () => Promise<void>;
   fetchProfile: () => Promise<void>;
@@ -73,15 +89,18 @@ interface FinanceState {
 
 type DataKosong = Pick<
   FinanceState,
-  'wallets' | 'transactions' | 'profile' | 'offlineQueue'
-  | 'isLoadingWallets' | 'isLoadingTransactions' | 'lastError'
+  'tabs' | 'activeTabId' | 'wallets' | 'transactions' | 'profile' | 'offlineQueue'
+  | 'isLoadingTabs' | 'isLoadingWallets' | 'isLoadingTransactions' | 'lastError'
 >;
 
 const kosong = (): DataKosong => ({
+  tabs: null,
+  activeTabId: null,
   wallets: null,
   transactions: null,
   profile: null,
   offlineQueue: [],
+  isLoadingTabs: false,
   isLoadingWallets: false,
   isLoadingTransactions: false,
   lastError: null,
@@ -98,6 +117,12 @@ export const useFinanceStore = create<FinanceState>()(
       ownerId: null,
       ...kosong(),
 
+      setTabs: (tabs) => set({ tabs }),
+      setActiveTabId: (activeTabId) => {
+        set({ activeTabId });
+        // Ketika tab diganti, kita harus memuat ulang semua data yang spesifik per tab
+        get().refreshAll();
+      },
       setWallets: (wallets) => set({ wallets }),
       setTransactions: (transactions) => set({ transactions }),
       setProfile: (profile) => set({ profile }),
@@ -111,19 +136,56 @@ export const useFinanceStore = create<FinanceState>()(
 
       clearStore: () => set({ ownerId: null, ...kosong() }),
 
+      fetchTabs: async () => {
+        set({ isLoadingTabs: true });
+        try {
+          const uid = await currentUserId();
+          if (!uid) {
+            set({ tabs: [], isLoadingTabs: false });
+            return;
+          }
+          const data = await safeMutate<Tab[]>(
+            supabase
+              .from('tabs')
+              .select('*')
+              .eq('user_id', uid)
+              .order('created_at', { ascending: true }),
+            'Gagal memuat profil tab',
+          );
+          const fetchedTabs = data ?? [];
+          set({ tabs: fetchedTabs, lastError: null });
+          
+          const currentActiveId = get().activeTabId;
+          // Set active tab if null and tabs exist
+          if (!currentActiveId && fetchedTabs.length > 0) {
+            set({ activeTabId: fetchedTabs[0].id });
+          } else if (currentActiveId && fetchedTabs.length > 0 && !fetchedTabs.find((t) => t.id === currentActiveId)) {
+            // Fallback if current active tab is deleted
+            set({ activeTabId: fetchedTabs[0].id });
+          }
+        } catch (e) {
+          console.error('[STORE] fetchTabs', e);
+          set({ tabs: get().tabs ?? [], lastError: (e as Error).message });
+        } finally {
+          set({ isLoadingTabs: false });
+        }
+      },
+
       fetchWallets: async () => {
         set({ isLoadingWallets: true });
         try {
           const uid = await currentUserId();
-          if (!uid) {
+          const currentTabId = get().activeTabId;
+          if (!uid || !currentTabId) {
             set({ wallets: [], isLoadingWallets: false });
             return;
           }
           const data = await safeMutate<Wallet[]>(
             supabase
               .from('wallets')
-              .select('id, user_id, name, balance, initial_balance')
+              .select('id, user_id, tab_id, name, balance, initial_balance')
               .eq('user_id', uid)
+              .eq('tab_id', currentTabId)
               .order('created_at', { ascending: true }),
             'Gagal memuat dompet',
           );
@@ -141,7 +203,8 @@ export const useFinanceStore = create<FinanceState>()(
         set({ isLoadingTransactions: true });
         try {
           const uid = await currentUserId();
-          if (!uid) {
+          const currentTabId = get().activeTabId;
+          if (!uid || !currentTabId) {
             set({ transactions: [], isLoadingTransactions: false });
             return;
           }
@@ -150,6 +213,7 @@ export const useFinanceStore = create<FinanceState>()(
               .from('transactions')
               .select('*')
               .eq('user_id', uid)
+              .eq('tab_id', currentTabId)
               .order('created_at', { ascending: false })
               .limit(100),
             'Gagal memuat transaksi',
@@ -182,6 +246,8 @@ export const useFinanceStore = create<FinanceState>()(
       },
 
       refreshAll: async () => {
+        // Tab harus diload lebih dulu karena Wallets/Transactions butuh activeTabId
+        await get().fetchTabs();
         await Promise.allSettled([
           get().fetchProfile(),
           get().fetchWallets(),
@@ -237,6 +303,8 @@ export const useFinanceStore = create<FinanceState>()(
       // ikut tersimpan lalu direhidrasi, membuat spinner dasbor macet selamanya.
       partialize: (state) => ({
         ownerId: state.ownerId,
+        tabs: state.tabs,
+        activeTabId: state.activeTabId,
         wallets: state.wallets,
         transactions: state.transactions,
         profile: state.profile,

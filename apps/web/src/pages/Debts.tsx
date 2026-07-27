@@ -8,7 +8,7 @@ import { safeMutate, pesanError } from '../lib/db';
 import { differenceInDays } from 'date-fns';
 
 export default function Debts() {
-  const { wallets, fetchWallets, fetchTransactions } = useFinanceStore();
+  const { wallets, activeTabId, fetchWallets, fetchTransactions } = useFinanceStore();
   const [debts, setDebts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -27,15 +27,20 @@ export default function Debts() {
 
   useEffect(() => {
     fetchDebts();
-  }, []);
+  }, [activeTabId]);
 
   const fetchDebts = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const data = await safeMutate<any[]>(
-        supabase.from('debts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-        'Gagal memuat catatan',
+        supabase
+          .from('debts')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('tab_id', activeTabId)
+          .order('created_at', { ascending: false }),
+        'Gagal memuat daftar hutang',
       );
       setDebts(data ?? []);
     } catch (error) {
@@ -63,6 +68,7 @@ export default function Debts() {
       // begitu pengguna mengetik "[" di dalam nama.
       const debtData = {
         user_id: user.id,
+        tab_id: activeTabId,
         title: newDebt.title.trim(),
         amount: Number(newDebt.amount),
         due_date: new Date(newDebt.due_date).toISOString(),
@@ -97,6 +103,7 @@ export default function Debts() {
       const transactionData = {
         id: crypto.randomUUID(),
         user_id: user.id,
+        tab_id: activeTabId,
         wallet_id: payDebt.wallet_id,
         type: isHutang ? 'expense' : 'income', // Bayar hutang = keluar. Terima piutang = masuk.
         amount: Number(selectedDebt.amount),

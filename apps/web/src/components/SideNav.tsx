@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   Home, CreditCard, Plus, PiggyBank, Settings, ShieldCheck, Wallet,
-  ArrowLeftRight, Receipt, Wallet2, Repeat, BarChart3, SlidersHorizontal,
+  ArrowLeftRight, Receipt, Wallet2, Repeat, BarChart3, SlidersHorizontal, BookOpen
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthProvider';
 
@@ -34,6 +34,7 @@ const KELOMPOK = [
   {
     judul: 'Tinjau',
     item: [
+      { to: '/cashbook', icon: BookOpen, label: 'Buku Kas & Analisis' },
       { to: '/reports', icon: BarChart3, label: 'Laporan & Statistik' },
       { to: '/receipts', icon: Receipt, label: 'Galeri Struk' },
     ],
@@ -41,6 +42,7 @@ const KELOMPOK = [
   {
     judul: 'Pengaturan',
     item: [
+      { to: '/import', icon: Plus, label: 'Impor Data' },
       { to: '/settings', icon: Settings, label: 'Akun & Keamanan' },
       { to: '/preferences', icon: SlidersHorizontal, label: 'Preferensi & Data' },
     ],

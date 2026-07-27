@@ -119,7 +119,7 @@ const formKosong = (walletId: string): FormJadwal => ({
 });
 
 export default function Recurring() {
-  const { wallets, fetchWallets, fetchTransactions } = useFinanceStore();
+  const { wallets, activeTabId, fetchWallets, fetchTransactions } = useFinanceStore();
 
   const [jadwals, setJadwals] = useState<Jadwal[]>([]);
   const [sedangMemuat, setSedangMemuat] = useState(true);
@@ -136,7 +136,7 @@ export default function Recurring() {
     // wallets bernilai null berarti belum pernah dimuat sama sekali (mis. halaman
     // ini dibuka langsung lewat URL), bukan berarti pengguna tidak punya dompet.
     if (wallets === null) fetchWallets();
-  }, []);
+  }, [activeTabId]);
 
   const namaDompet = useMemo(() => {
     const peta = new Map<string, string>();
@@ -169,6 +169,7 @@ export default function Recurring() {
           .from('recurring_transactions')
           .select('*')
           .eq('user_id', user.id)
+          .eq('tab_id', activeTabId)
           .order('is_active', { ascending: false })
           .order('next_run', { ascending: true }),
         'Gagal memuat jadwal',
@@ -245,6 +246,7 @@ export default function Recurring() {
 
       const isi = {
         wallet_id: form.wallet_id,
+        tab_id: activeTabId,
         type: form.type,
         amount: nominal,
         category: form.category.trim() || null,
@@ -340,6 +342,7 @@ export default function Recurring() {
       const transaksi = {
         id: crypto.randomUUID(),
         user_id: user.id,
+        tab_id: activeTabId,
         wallet_id: baris.wallet_id,
         type: baris.type,
         amount: Number(baris.amount),

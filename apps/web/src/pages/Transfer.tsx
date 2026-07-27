@@ -39,7 +39,7 @@ const formatTanggal = (iso?: string | null) => {
 const JUMLAH_RIWAYAT = 6;
 
 export default function Transfer() {
-  const { wallets, transactions, fetchWallets, fetchTransactions } = useFinanceStore();
+  const { wallets, activeTabId, transactions, fetchWallets, fetchTransactions } = useFinanceStore();
 
   const [form, setForm] = useState({ dari: '', ke: '', nominal: '', catatan: '' });
   const [sibuk, setSibuk] = useState(false);
@@ -139,6 +139,7 @@ export default function Transfer() {
         supabase.from('transactions').insert({
           id: crypto.randomUUID(),
           user_id: user.id,
+          tab_id: activeTabId,
           wallet_id: form.dari,
           to_wallet_id: form.ke,
           type: 'transfer',

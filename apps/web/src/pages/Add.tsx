@@ -16,7 +16,7 @@ const BAR_SUARA = [0.9, 1.5, 0.7, 1.8, 0.8, 1.4, 1.0];
 
 export default function Add() {
   const navigate = useNavigate();
-  const { wallets, enqueueOffline, fetchWallets, fetchTransactions } = useFinanceStore();
+  const { wallets, activeTabId, enqueueOffline, fetchWallets, fetchTransactions } = useFinanceStore();
   
   const [isLoading, setIsLoading] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
@@ -146,6 +146,24 @@ export default function Add() {
     } catch (error) {
       console.error(error);
       toast.error(pesanApi(error, 'Gagal membaca struk'), { id: toastId });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFileChangeOnly = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+    const toastId = toast.loading('Mengompresi struk...');
+    try {
+      const compressedFile = await compressImage(file);
+      setPendingReceipt(compressedFile);
+      toast.success('Struk berhasil dilampirkan!', { id: toastId });
+    } catch (error) {
+      console.error(error);
+      toast.error('Gagal mengompresi struk', { id: toastId });
     } finally {
       setIsLoading(false);
     }
@@ -436,6 +454,7 @@ export default function Add() {
       const transactionData = {
         id: crypto.randomUUID(),
         user_id: user.id,
+        tab_id: activeTabId,
         wallet_id: formData.wallet_id,
         type: formData.type,
         amount: nominal,
@@ -745,6 +764,48 @@ export default function Add() {
                 onChange={(e) => setFormData({...formData, customCategory: e.target.value})}
                 className="w-full bg-black/20 border border-white/10 rounded-2xl px-4 py-3 text-white placeholder-white/45 focus:outline-none focus:ring-1 focus:ring-teal-400 font-light mt-2"
               />
+            )}
+          </div>
+
+          <div>
+            <label className="text-white/70 text-[10px] font-bold uppercase tracking-widest ml-1 block mb-1">
+              Lampiran Struk (Opsional)
+            </label>
+            {pendingReceipt ? (
+              <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl p-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-12 w-12 rounded-xl border border-white/15 overflow-hidden flex-shrink-0 bg-black/20 flex items-center justify-center">
+                    <img 
+                      src={URL.createObjectURL(pendingReceipt)} 
+                      alt="Pratinjau struk" 
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-white text-xs truncate font-medium">{pendingReceipt.name}</p>
+                    <p className="text-white/50 text-[10px]">{(pendingReceipt.size / 1024).toFixed(1)} KB</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingReceipt(null)}
+                  className="p-2 text-red-400 hover:bg-white/5 rounded-full active:scale-95 transition-all"
+                  title="Hapus struk"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            ) : (
+              <label className="flex items-center justify-center gap-2 border border-dashed border-white/20 hover:border-teal-400/50 hover:bg-teal-400/5 rounded-2xl p-4 cursor-pointer transition-all">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={handleFileChangeOnly} 
+                />
+                <ImagePlus size={18} className="text-white/60" />
+                <span className="text-white/70 text-xs font-light">Pilih Foto Struk</span>
+              </label>
             )}
           </div>
 

@@ -1,6 +1,8 @@
 import { Outlet } from 'react-router-dom';
 import BottomNav from '../components/BottomNav';
 import SideNav from '../components/SideNav';
+import TabSwitcher from '../components/TabSwitcher';
+import ReminderBell from '../components/ReminderBell';
 
 /**
  * Cangkang aplikasi yang menyesuaikan lebar layar.
@@ -18,6 +20,12 @@ export default function UserLayout() {
       <SideNav />
 
       <div className="flex-1 relative flex flex-col min-w-0">
+        {/* Header Global (Tab Switcher) */}
+        <div className="flex items-center justify-between p-4 pb-2 z-30 relative">
+          <TabSwitcher />
+          <ReminderBell />
+        </div>
+
         {/* pb-dock hanya di ponsel; di laptop tidak ada dock yang perlu dihindari. */}
         <div className="flex-1 overflow-y-auto no-scrollbar md:thin-scrollbar pb-dock md:pb-8">
           <Outlet />

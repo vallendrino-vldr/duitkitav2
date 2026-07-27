@@ -7,6 +7,9 @@ import { supabase } from '../lib/supabase';
 import { safeMutate, pesanError } from '../lib/db';
 import { urlStruk } from '../lib/api';
 import type { Transaction } from '../store/useFinanceStore';
+import { useFinanceStore } from '../store/useFinanceStore';
+import TransactionEditor from '../components/TransactionEditor';
+import { Pencil } from 'lucide-react';
 
 const formatIDR = (nilai: number) =>
   new Intl.NumberFormat('id-ID', {
@@ -184,6 +187,10 @@ export default function Receipts() {
   const [urlPratinjau, setUrlPratinjau] = useState<string | null>(null);
   const [gagalPratinjau, setGagalPratinjau] = useState(false);
   const [sedangUnduh, setSedangUnduh] = useState(false);
+  
+  const { wallets, refreshAll } = useFinanceStore();
+  const safeWallets = wallets || [];
+  const [trxDiedit, setTrxDiedit] = useState<Transaction | null>(null);
 
   // Signed URL berlaku sejam, jadi aman disimpan selama halaman terbuka.
   // `berjalan` menahan permintaan yang belum selesai supaya kartu yang keluar-masuk
@@ -454,7 +461,7 @@ export default function Receipts() {
           <Receipt size={44} className="mx-auto mb-4 text-white/70" />
           <h3 className="text-lg font-bold text-white">Belum ada struk tersimpan</h3>
           <p className="mx-auto mt-2 max-w-sm text-sm text-white/70">
-            Setiap kali kamu memotret struk lewat menu Tambah, fotonya otomatis muncul di sini
+            Setiap kali kamu memotret struk atau mengimpor data, fotonya otomatis muncul di sini
             sebagai bukti transaksi.
           </p>
         </div>
@@ -554,21 +561,45 @@ export default function Receipts() {
                   <p className="text-lg font-bold text-white">
                     {formatIDR(Number(terpilih.amount))}
                   </p>
-                  <button
-                    type="button"
-                    onClick={unduhStruk}
-                    disabled={sedangUnduh}
-                    className="btn-primary"
-                  >
-                    <Download size={18} />
-                    {sedangUnduh ? 'Menyiapkan...' : 'Unduh Struk'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTrxDiedit(terpilih);
+                        setTerpilih(null);
+                      }}
+                      className="btn-ghost"
+                    >
+                      <Pencil size={18} />
+                      Edit Transaksi
+                    </button>
+                    <button
+                      type="button"
+                      onClick={unduhStruk}
+                      disabled={sedangUnduh}
+                      className="btn-primary"
+                    >
+                      <Download size={18} />
+                      {sedangUnduh ? 'Menyiapkan...' : 'Unduh'}
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </>
           )}
         </AnimatePresence>
       </Portal>
+
+      <TransactionEditor
+        transaksi={trxDiedit}
+        wallets={safeWallets}
+        onTutup={() => setTrxDiedit(null)}
+        onSelesai={() => {
+          setTrxDiedit(null);
+          void muat();
+          void refreshAll();
+        }}
+      />
     </motion.div>
   );
 }

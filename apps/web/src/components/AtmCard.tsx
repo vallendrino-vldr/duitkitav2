@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFinanceStore } from '../store/useFinanceStore';
-import { Eye, EyeOff, CreditCard, Wallet, ChevronDown, Nfc } from 'lucide-react';
+import { Eye, EyeOff, CreditCard, Wallet, ChevronDown, Nfc, Pencil } from 'lucide-react';
+import WalletEditor from './WalletEditor';
+import { Wallet as WalletType } from '../store/useFinanceStore';
 
 /**
  * Kartu saldo bergaya kartu ATM.
@@ -23,6 +25,7 @@ export default function AtmCard() {
   const { wallets } = useFinanceStore();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
+  const [editingWallet, setEditingWallet] = useState<WalletType | null>(null);
 
   const safeWallets = wallets || [];
   const totalBalance = safeWallets.reduce((acc, w) => acc + Number(w.balance || 0), 0);
@@ -136,9 +139,22 @@ export default function AtmCard() {
                       )}
                       <span className="text-white/95 font-medium truncate">{wallet.name}</span>
                     </div>
-                    <span className="text-white font-bold tabular-nums shrink-0">
-                      {showBalance ? formatIDR(Number(wallet.balance || 0)) : '••••••'}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-white font-bold tabular-nums shrink-0">
+                        {showBalance ? formatIDR(Number(wallet.balance || 0)) : '••••••'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingWallet(wallet);
+                        }}
+                        className="p-1.5 rounded-full text-white/40 hover:text-white/90 hover:bg-white/10 transition-colors"
+                        aria-label="Edit dompet"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {safeWallets.length === 0 && (
@@ -149,6 +165,17 @@ export default function AtmCard() {
           </AnimatePresence>
         </div>
       </motion.div>
+      <WalletEditor
+        wallet={editingWallet}
+        onClose={() => setEditingWallet(null)}
+        onSuccess={() => {
+          setEditingWallet(null);
+          // Assuming useFinanceStore's fetchWallets might be needed, but mutations usually trigger a reload
+          // if we refresh from parent Dashboard. The user will see it after Dashboard reloads or we can trigger it.
+          // Since refreshAll/fetchWallets is available in store, we could call it:
+          useFinanceStore.getState().fetchWallets();
+        }}
+      />
     </div>
   );
 }

@@ -34,6 +34,9 @@ const Budget = lazy(() => import('./pages/Budget'));
 const Recurring = lazy(() => import('./pages/Recurring'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Preferences = lazy(() => import('./pages/Preferences'));
+const Cashbook = lazy(() => import('./pages/Cashbook'));
+const ImportData = lazy(() => import('./pages/ImportData'));
+const Calendar = lazy(() => import('./pages/Calendar'));
 
 /** Pembungkus agar tiap halaman malas punya layar tunggu yang konsisten. */
 function Malas({ children, label }: { children: React.ReactNode; label: string }) {
@@ -96,6 +99,9 @@ export default function App() {
               <Route path="/recurring" element={<Malas label="Memuat transaksi berulang…"><Recurring /></Malas>} />
               <Route path="/reports" element={<Malas label="Memuat laporan…"><Reports /></Malas>} />
               <Route path="/preferences" element={<Malas label="Memuat preferensi…"><Preferences /></Malas>} />
+              <Route path="/cashbook" element={<Malas label="Memuat buku kas…"><Cashbook /></Malas>} />
+              <Route path="/import" element={<Malas label="Memuat impor data…"><ImportData /></Malas>} />
+              <Route path="/calendar" element={<Malas label="Memuat kalender…"><Calendar /></Malas>} />
             </Route>
 
             {/* Rute admin */}

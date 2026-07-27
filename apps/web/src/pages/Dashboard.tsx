@@ -19,7 +19,7 @@ const CashflowChart = lazy(() => import('../components/CashflowChart'));
 export default function Dashboard() {
   // 1. ALL HOOKS FIRST — no early returns above hooks
   const {
-    wallets, transactions, profile,
+    wallets, transactions, profile, activeTabId,
     fetchWallets, fetchTransactions, fetchProfile,
     setWallets,
   } = useFinanceStore();
@@ -92,7 +92,7 @@ export default function Dashboard() {
       const dompetBaru = await safeMutateOne<any>(
         supabase
           .from('wallets')
-          .insert({ user_id: user.id, name: newWalletName.trim(), balance: 0, initial_balance: 0 })
+          .insert({ user_id: user.id, tab_id: activeTabId, name: newWalletName.trim(), balance: 0, initial_balance: 0 })
           .select(),
         'Gagal membuat dompet',
       );

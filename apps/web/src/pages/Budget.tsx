@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { safeMutate, safeMutateOne, pesanError } from '../lib/db';
 import Portal from '../components/Portal';
+import { rentangSiklus } from '../utils/dateUtils';
 
 interface Anggaran {
   id: string;
@@ -52,13 +53,10 @@ const periodeDari = (d: Date) =>
  * WIB hasilnya mundur ke 30 Juni pukul 07.00 dan transaksi tanggal 1 ikut hilang
  * dari perhitungan. Karena itu tahun/bulan dipecah manual.
  */
-function rentangBulan(periode: string): { mulai: Date; selesai: Date } {
+function rentangBulan(periode: string, startDay: number = 1): { mulai: Date; selesai: Date } {
   const [th, bl] = periode.split('-').map(Number);
   const acuan = Number.isFinite(th) && Number.isFinite(bl) ? new Date(th, bl - 1, 1) : new Date();
-  return {
-    mulai: new Date(acuan.getFullYear(), acuan.getMonth(), 1),
-    selesai: new Date(acuan.getFullYear(), acuan.getMonth() + 1, 1),
-  };
+  return rentangSiklus(acuan.getFullYear(), acuan.getMonth(), startDay);
 }
 
 /** Kategori khusus buatan pengguna disimpan di perangkat oleh halaman Pengaturan. */
@@ -103,7 +101,13 @@ export default function Budget() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Sesi kamu sudah berakhir. Silakan masuk ulang.');
 
-      const { mulai, selesai } = rentangBulan(periode);
+      const prefRow = await safeMutate<{ tanggal_mulai_bulan: number }[]>(
+        supabase.from('user_preferences').select('tanggal_mulai_bulan').eq('user_id', user.id).limit(1),
+        'Gagal memuat preferensi bulan'
+      );
+      const startDay = prefRow?.[0]?.tanggal_mulai_bulan ?? 1;
+
+      const { mulai, selesai } = rentangBulan(periode, startDay);
 
       const [barisAnggaran, barisTransaksi] = await Promise.all([
         safeMutate<Anggaran[]>(

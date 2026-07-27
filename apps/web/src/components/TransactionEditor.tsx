@@ -9,12 +9,14 @@ import {
   ImageOff,
   ExternalLink,
   ReceiptText,
+  ImagePlus,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Portal from './Portal';
 import { supabase } from '../lib/supabase';
 import { safeMutateOne, pesanError } from '../lib/db';
-import { urlStruk } from '../lib/api';
+import { urlStruk, unggahStruk } from '../lib/api';
+import { compressImage } from '../utils/imageCompressor';
 import { useFinanceStore, type Transaction, type Wallet } from '../store/useFinanceStore';
 
 interface Props {
@@ -124,6 +126,9 @@ export default function TransactionEditor({ transaksi, wallets, onTutup, onSeles
   const [urlGambar, setUrlGambar] = useState<string | null>(null);
   const [gambarDimuat, setGambarDimuat] = useState(false);
 
+  const [pendingEditReceipt, setPendingEditReceipt] = useState<File | null>(null);
+  const [isDeletingReceipt, setIsDeletingReceipt] = useState(false);
+
   const terbuka = transaksi !== null;
   const idTransaksi = transaksi?.id ?? null;
   const pathStruk = transaksi?.receipt_url ?? null;
@@ -153,6 +158,8 @@ export default function TransactionEditor({ transaksi, wallets, onTutup, onSeles
     });
     setGalat({});
     setKonfirmasiHapus(false);
+    setPendingEditReceipt(null);
+    setIsDeletingReceipt(false);
     // Sengaja hanya bergantung pada id: induk bisa mengirim objek baru hasil
     // refetch di tengah pengetikan, dan bila objeknya ikut jadi dependensi,
     // isian yang sedang diketik tertimpa data lama.
@@ -230,6 +237,25 @@ export default function TransactionEditor({ transaksi, wallets, onTutup, onSeles
     return hasil;
   };
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSibuk(true);
+    const toastId = toast.loading('Mengompresi struk...');
+    try {
+      const compressedFile = await compressImage(file);
+      setPendingEditReceipt(compressedFile);
+      setIsDeletingReceipt(false);
+      toast.success('Struk baru ditambahkan!', { id: toastId });
+    } catch (error) {
+      console.error(error);
+      toast.error('Gagal mengompresi struk', { id: toastId });
+    } finally {
+      setSibuk(false);
+    }
+  };
+
   const simpan = async (e: FormEvent) => {
     e.preventDefault();
     if (!transaksi || sibuk || sibukHapus) return;
@@ -244,6 +270,14 @@ export default function TransactionEditor({ transaksi, wallets, onTutup, onSeles
     setSibuk(true);
     const idToast = toast.loading('Menyimpan perubahan...');
     try {
+      let receiptPath: string | null | undefined = undefined;
+
+      if (isDeletingReceipt) {
+        receiptPath = null;
+      } else if (pendingEditReceipt) {
+        receiptPath = await unggahStruk(pendingEditReceipt);
+      }
+
       // safeMutateOne, bukan safeMutate: update yang diblokir aturan keamanan
       // (atau menunjuk id yang sudah tidak ada) TIDAK menghasilkan error — ia
       // hanya mengenai nol baris. Tanpa `.select()` yang membuktikan ada baris
@@ -263,6 +297,7 @@ export default function TransactionEditor({ transaksi, wallets, onTutup, onSeles
             // seolah-olah bertambah dari udara.
             to_wallet_id: form.tipe === 'transfer' ? form.dompetTujuan : null,
             created_at: new Date(form.waktu).toISOString(),
+            ...(receiptPath !== undefined ? { receipt_url: receiptPath } : {}),
           })
           .eq('id', transaksi.id)
           .select(KOLOM_TRANSAKSI),
@@ -541,51 +576,102 @@ export default function TransactionEditor({ transaksi, wallets, onTutup, onSeles
               </div>
 
               {/* ---------- struk ---------- */}
-              {pathStruk && (
-                <div className="rounded-2xl bg-white/5 border border-white/10 p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <ReceiptText size={16} className="text-accent-300" />
-                    <span className="text-white/70 text-micro font-semibold uppercase tracking-wider">
-                      Foto Struk
-                    </span>
-                  </div>
-
-                  {urlGambar ? (
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={urlGambar}
-                        alt="Struk transaksi"
-                        loading="lazy"
-                        onLoad={() => setGambarDimuat(true)}
-                        onError={() => setUrlGambar(null)}
-                        className="h-20 w-20 rounded-2xl object-cover border border-white/15 flex-shrink-0"
-                      />
-                      <div className="min-w-0">
-                        {!gambarDimuat && (
-                          <p className="text-white/70 text-micro mb-1">Memuat gambar...</p>
-                        )}
-                        <a
-                          href={urlGambar}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn-ghost px-4 text-sm"
-                        >
-                          <ExternalLink size={16} />
-                          Buka Ukuran Penuh
-                        </a>
-                        <p className="text-white/70 text-micro mt-1.5">
-                          Tautan struk hanya berlaku satu jam.
-                        </p>
+              <div>
+                <label className="label">Foto Struk</label>
+                {pendingEditReceipt ? (
+                  <div className="rounded-2xl bg-white/5 border border-white/10 p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <ReceiptText size={16} className="text-teal-300" />
+                      <span className="text-white/70 text-micro font-semibold uppercase tracking-wider">
+                        Struk Baru (Belum Disimpan)
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={URL.createObjectURL(pendingEditReceipt)}
+                          alt="Struk baru"
+                          className="h-20 w-20 rounded-2xl object-cover border border-white/15 flex-shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-white text-xs truncate font-medium">{pendingEditReceipt.name}</p>
+                          <p className="text-white/50 text-[10px]">{(pendingEditReceipt.size / 1024).toFixed(1)} KB</p>
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setPendingEditReceipt(null)}
+                        className="p-2 text-danger-400 hover:bg-white/5 rounded-full active:scale-95 transition-all"
+                        title="Batalkan struk baru"
+                      >
+                        <X size={18} />
+                      </button>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-white/70 text-sm">
-                      <ImageOff size={18} className="flex-shrink-0" />
-                      <span>Struk belum bisa ditampilkan. Coba tutup dan buka lagi.</span>
+                  </div>
+                ) : (pathStruk && !isDeletingReceipt) ? (
+                  <div className="rounded-2xl bg-white/5 border border-white/10 p-3">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <ReceiptText size={16} className="text-accent-300" />
+                        <span className="text-white/70 text-micro font-semibold uppercase tracking-wider">
+                          Struk Saat Ini
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsDeletingReceipt(true)}
+                        className="text-danger-400 hover:text-danger-300 text-micro font-semibold flex items-center gap-1 bg-danger-500/10 hover:bg-danger-500/20 px-2.5 py-1 rounded-full transition-all"
+                      >
+                        <Trash2 size={12} /> Hapus Struk
+                      </button>
                     </div>
-                  )}
-                </div>
-              )}
+
+                    {urlGambar ? (
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={urlGambar}
+                          alt="Struk transaksi"
+                          loading="lazy"
+                          onLoad={() => setGambarDimuat(true)}
+                          onError={() => setUrlGambar(null)}
+                          className="h-20 w-20 rounded-2xl object-cover border border-white/15 flex-shrink-0"
+                        />
+                        <div className="min-w-0">
+                          {!gambarDimuat && (
+                            <p className="text-white/70 text-micro mb-1">Memuat gambar...</p>
+                          )}
+                          <div className="flex flex-col gap-1.5">
+                            <a
+                              href={urlGambar}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn-ghost px-3 text-[11px] h-8 inline-flex items-center gap-1.5"
+                            >
+                              <ExternalLink size={12} />
+                              Ukuran Penuh
+                            </a>
+                            <label className="btn bg-white/10 text-white border border-white/15 hover:bg-white/15 px-3 text-[11px] h-8 inline-flex items-center gap-1.5 cursor-pointer justify-center rounded-xl transition-all">
+                              <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                              <ImagePlus size={12} /> Ganti Struk
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-white/70 text-sm">
+                        <ImageOff size={18} className="flex-shrink-0" />
+                        <span>Struk belum bisa ditampilkan. Coba tutup dan buka lagi.</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <label className="flex items-center justify-center gap-2 border border-dashed border-white/20 hover:border-teal-400/50 hover:bg-teal-400/5 rounded-2xl p-4 cursor-pointer transition-all">
+                    <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                    <ImagePlus size={18} className="text-white/60" />
+                    <span className="text-white/70 text-xs font-light">Pilih Foto Struk</span>
+                  </label>
+                )}
+              </div>
 
               {/* ---------- tombol utama ---------- */}
               <div className="flex gap-3 pt-1">

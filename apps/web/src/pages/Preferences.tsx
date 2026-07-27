@@ -3,9 +3,9 @@ import type { ChangeEvent, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
-  SlidersHorizontal, Moon, Sun, Monitor, Type, Hash, Languages, Coins,
+  SlidersHorizontal, Type, Hash, Coins,
   Fingerprint, KeyRound, ShieldCheck, BellRing, ImagePlus, Database,
-  Download, Upload, Trash2, AlertTriangle, Loader2, User as UserIcon, X,
+  Download, Upload, Trash2, AlertTriangle, Loader2, User as UserIcon, X, Calendar, Plus,
 } from 'lucide-react';
 import Portal from '../components/Portal';
 import { supabase } from '../lib/supabase';
@@ -13,6 +13,7 @@ import { safeMutate, pesanError } from '../lib/db';
 import { unggahStruk, urlStruk } from '../lib/api';
 import { compressImage, formatKB, TARGET_KB } from '../utils/imageCompressor';
 import { useFinanceStore } from '../store/useFinanceStore';
+import { useNavigate } from 'react-router-dom';
 
 type Tema = 'dark' | 'light' | 'system';
 type FormatAngka = 'id' | 'en';
@@ -28,6 +29,7 @@ interface Preferensi {
   avatar_url: string | null;
   unlock_method: CaraBuka;
   reminder_days_before: number;
+  tanggal_mulai_bulan: number;
 }
 
 /** Baris apa adanya dari database — semua kolom bisa null, jadi jangan dipercaya mentah-mentah. */
@@ -42,10 +44,11 @@ const BAWAAN: Preferensi = {
   avatar_url: null,
   unlock_method: 'pin',
   reminder_days_before: 3,
+  tanggal_mulai_bulan: 1,
 };
 
 const KOLOM_PREFERENSI =
-  'user_id, theme, font_scale, number_format, language, currency, avatar_url, unlock_method, reminder_days_before';
+  'user_id, theme, font_scale, number_format, language, currency, avatar_url, unlock_method, reminder_days_before, tanggal_mulai_bulan';
 
 const SKALA_MIN = 0.8;
 const SKALA_MAX = 1.6;
@@ -101,6 +104,7 @@ function normalkan(baris: BarisTabel): Preferensi {
     avatar_url: typeof baris.avatar_url === 'string' && baris.avatar_url ? baris.avatar_url : null,
     unlock_method: buka === 'biometric' || buka === 'both' ? buka : 'pin',
     reminder_days_before: batasi(Math.round(angkaAman(baris.reminder_days_before, 3)), 0, 30),
+    tanggal_mulai_bulan: batasi(Math.round(angkaAman(baris.tanggal_mulai_bulan, 1)), 1, 31),
   };
 }
 
@@ -129,6 +133,7 @@ function potong<T>(daftar: T[], ukuran: number): T[][] {
 
 export default function Preferences() {
   const { refreshAll } = useFinanceStore();
+  const navigate = useNavigate();
 
   const [prefs, setPrefs] = useState<Preferensi>(BAWAAN);
   const [skala, setSkala] = useState<number>(BAWAAN.font_scale);
@@ -543,23 +548,7 @@ export default function Preferences() {
             </div>
           </Kartu>
 
-          {/* ---------- Tema ---------- */}
-          <Kartu
-            ikon={<Moon size={20} />}
-            judul="Tema Tampilan"
-            catatan="Mode terang baru menyetel penanda tema; sebagian tampilan masih berwarna gelap sampai gaya terangnya selesai dibuat."
-          >
-            <Segmen<Tema>
-              nilai={prefs.theme}
-              sibuk={menyimpan}
-              onPilih={(v) => void simpan({ theme: v }, 'Tema disimpan')}
-              opsi={[
-                { nilai: 'dark', label: 'Gelap', ikon: <Moon size={18} /> },
-                { nilai: 'light', label: 'Terang', ikon: <Sun size={18} /> },
-                { nilai: 'system', label: 'Ikut Sistem', ikon: <Monitor size={18} /> },
-              ]}
-            />
-          </Kartu>
+
 
           {/* ---------- Ukuran huruf ---------- */}
           <Kartu ikon={<Type size={20} />} judul="Ukuran Huruf" catatan="Geser lalu lepas — perubahan langsung terlihat dan otomatis tersimpan.">
@@ -603,22 +592,7 @@ export default function Preferences() {
             />
           </Kartu>
 
-          {/* ---------- Bahasa ---------- */}
-          <Kartu
-            ikon={<Languages size={20} />}
-            judul="Bahasa Antarmuka"
-            catatan="Jujur ya: pilihan bahasa sudah tersimpan, tapi seluruh tulisan aplikasi masih Bahasa Indonesia. Terjemahan penuh menyusul."
-          >
-            <Segmen<Bahasa>
-              nilai={prefs.language}
-              sibuk={menyimpan}
-              onPilih={(v) => void simpan({ language: v }, 'Pilihan bahasa disimpan')}
-              opsi={[
-                { nilai: 'id', label: 'Indonesia' },
-                { nilai: 'en', label: 'English', keterangan: 'belum diterjemahkan' },
-              ]}
-            />
-          </Kartu>
+
 
           {/* ---------- Mata uang ---------- */}
           <Kartu ikon={<Coins size={20} />} judul="Mata Uang Bawaan" catatan="Dipakai saat menampilkan nominal di seluruh aplikasi.">
@@ -686,6 +660,26 @@ export default function Preferences() {
             )}
           </Kartu>
 
+          {/* ---------- Siklus Bulanan ---------- */}
+          <Kartu ikon={<Calendar size={20} />} judul="Tanggal Mulai Bulan" catatan="Dipakai sebagai acuan perhitungan Anggaran dan Laporan bulanan.">
+            <div className="flex items-center gap-3">
+              <span className="text-white/70 text-sm">Tanggal</span>
+              <select
+                value={String(prefs.tanggal_mulai_bulan)}
+                disabled={menyimpan}
+                aria-label="Tanggal mulai bulan"
+                onChange={(e) => void simpan({ tanggal_mulai_bulan: Number(e.target.value) }, 'Siklus bulanan disimpan')}
+                className="field appearance-none flex-1"
+              >
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((tgl) => (
+                  <option key={tgl} value={tgl} className="bg-ink-800">
+                    {tgl} {tgl === 1 ? '(Default)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </Kartu>
+
           {/* ---------- Pengingat jatuh tempo ---------- */}
           <Kartu ikon={<BellRing size={20} />} judul="Pengingat Jatuh Tempo" catatan="Berlaku untuk hutang, piutang, dan tagihan berulang.">
             <select
@@ -736,8 +730,19 @@ export default function Preferences() {
                 Pulihkan dari berkas
               </button>
             </div>
-            <p className="text-white/70 text-sm">
-              Saat memulihkan, baris dengan nomor yang sama akan ditimpa, bukan digandakan.
+            
+            <div className="pt-2 border-t border-white/10 mt-2">
+              <button 
+                type="button" 
+                onClick={() => navigate('/import')} 
+                className="btn-ghost w-full flex items-center justify-center gap-2 bg-brand-500/10 text-brand-400 hover:bg-brand-500/20 transition-colors border border-brand-500/30"
+              >
+                <Plus size={18} />
+                Impor dari Aplikasi Kompetitor (Excel / PDF)
+              </button>
+            </div>
+            <p className="text-white/70 text-sm mt-2">
+              Saat memulihkan JSON, baris dengan nomor yang sama akan ditimpa, bukan digandakan.
               Saldo dompet dihitung ulang otomatis dari transaksinya.
             </p>
           </Kartu>
