@@ -1,4 +1,5 @@
 import { useKualitasVisual } from '../lib/useKualitasVisual';
+import { useJedaSaatSibuk } from '../lib/useJedaSaatSibuk';
 
 /**
  * Latar aplikasi: aurora, objek 3D idle, kilau, dan partikel.
@@ -58,6 +59,9 @@ function Aurora({
 export default function AuroraBackground() {
   const kualitas = useKualitasVisual();
   const hemat = kualitas === 'hemat';
+
+  // Membekukan seluruh hiasan selama pengguna menggulir/menyentuh layar.
+  useJedaSaatSibuk();
 
   const jumlahCincin = hemat ? 5 : 9;
   const kilau = hemat ? KILAU.slice(0, 4) : KILAU;

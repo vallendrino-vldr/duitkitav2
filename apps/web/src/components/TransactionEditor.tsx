@@ -20,7 +20,12 @@ import { useFinanceStore, type Transaction, type Wallet } from '../store/useFina
 interface Props {
   /** `null` berarti modal tertutup. Satu-satunya penentu tampil atau tidaknya modal. */
   transaksi: Transaction | null;
-  wallets: Wallet[];
+  /**
+   * Boleh `null`: di store, `wallets` bernilai null selama belum pernah dimuat.
+   * Tipenya sengaja dilonggarkan supaya nilai store bisa dioper apa adanya —
+   * penjaga Array.isArray di bawah yang menanganinya.
+   */
+  wallets: Wallet[] | null | undefined;
   onTutup: () => void;
   onSelesai: () => void;
 }
