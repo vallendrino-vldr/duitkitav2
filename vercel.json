@@ -6,6 +6,10 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/api/:jalur*",
+      "destination": "/api/index?__jalur=:jalur*"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

@@ -37,14 +37,50 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-/** Pesan error yang enak dibaca dari kegagalan panggilan API. */
+/**
+ * Memaksa apa pun menjadi teks yang aman dirender.
+ *
+ * INI PENJAGA PENTING. Sebelumnya pesan error diambil mentah dari
+ * `response.data.error`, padahal Vercel membalas galat platform dalam bentuk
+ * OBJEK: {"error":{"code":"401","message":"Protected deployment"}}. Objek itu
+ * lolos sampai ke JSX, React melempar error #31 ("Objects are not valid as a
+ * React child"), dan SELURUH aplikasi mati dengan layar "Terjadi Kesalahan
+ * Kritis" — padahal masalah aslinya cuma satu permintaan yang gagal.
+ */
+function keTeks(nilai: unknown): string | null {
+  if (typeof nilai === 'string') return nilai.trim() || null;
+  if (typeof nilai === 'number' || typeof nilai === 'boolean') return String(nilai);
+  if (nilai && typeof nilai === 'object') {
+    const o = nilai as Record<string, unknown>;
+    // Bentuk galat yang lazim: {message}, {error}, {msg}, {detail}
+    for (const kunci of ['message', 'error', 'msg', 'detail', 'description']) {
+      const isi = keTeks(o[kunci]);
+      if (isi) return isi;
+    }
+  }
+  return null;
+}
+
+/** Pesan error yang enak dibaca — DIJAMIN berupa teks, apa pun bentuk aslinya. */
 export function pesanApi(e: unknown, fallback: string): string {
   if (axios.isAxiosError(e)) {
     if (e.code === 'ECONNABORTED') return 'Permintaan terlalu lama. Coba lagi.';
-    if (!e.response) return 'Tidak bisa menghubungi server. Pastikan API menyala.';
-    return (e.response.data as any)?.error || fallback;
+    if (!e.response) return 'Tidak bisa menghubungi server. Periksa koneksi kamu.';
+
+    const status = e.response.status;
+    const dariBadan = keTeks(e.response.data);
+
+    // Galat platform Vercel: sampaikan dengan bahasa yang bisa ditindaklanjuti,
+    // bukan istilah teknis yang tidak berarti apa-apa bagi pengguna.
+    if (status === 404) return 'Layanan tidak ditemukan di server. Coba muat ulang halaman.';
+    if (status === 401 && dariBadan === 'Protected deployment') {
+      return 'Deploy ini masih terkunci Vercel. Matikan Deployment Protection di pengaturan proyek.';
+    }
+    if (status === 503) return dariBadan || 'Layanan sedang tidak tersedia.';
+
+    return dariBadan || `${fallback} (kode ${status})`;
   }
-  return fallback;
+  return keTeks(e) || fallback;
 }
 
 /**

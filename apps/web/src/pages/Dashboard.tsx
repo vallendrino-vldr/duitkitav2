@@ -1,13 +1,16 @@
 import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
-import { useFinanceStore } from '../store/useFinanceStore';
+import { useFinanceStore, type Transaction } from '../store/useFinanceStore';
 import { safeMutateOne, pesanError } from '../lib/db';
+import { urlStruk } from '../lib/api';
 import toast from 'react-hot-toast';
-import { ArrowUpRight, ArrowDownRight, RefreshCw, ChevronDown } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, RefreshCw, ChevronDown, Pencil } from 'lucide-react';
 
 import AtmCard from '../components/AtmCard';
 import AiRoastBox from '../components/AiRoastBox';
+import ProfileSheet from '../components/ProfileSheet';
+import TransactionEditor from '../components/TransactionEditor';
 
 // Pustaka grafik itu bagian terberat aplikasi (±374 KB) dan letaknya di bawah
 // layar. Dimuat terpisah supaya saldo dan daftar transaksi muncul lebih dulu.
@@ -22,11 +25,39 @@ export default function Dashboard() {
   } = useFinanceStore();
   const [newWalletName, setNewWalletName] = useState('');
   const [isCreatingWallet, setIsCreatingWallet] = useState(false);
+  const [profilTerbuka, setProfilTerbuka] = useState(false);
+  const [trxDiedit, setTrxDiedit] = useState<Transaction | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     // allSettled: satu permintaan gagal tidak boleh menggantung dua lainnya.
     void Promise.allSettled([fetchProfile(), fetchWallets(), fetchTransactions()]);
   }, []);
+
+  // Foto profil disimpan sebagai PATH di bucket privat, jadi perlu ditukar
+  // dulu jadi URL bertanda tangan sebelum bisa ditampilkan.
+  useEffect(() => {
+    let aktif = true;
+    (async () => {
+      try {
+        const { data: sesi } = await supabase.auth.getSession();
+        const uid = sesi.session?.user?.id;
+        if (!uid) return;
+        const { data } = await supabase
+          .from('user_preferences')
+          .select('avatar_url')
+          .eq('user_id', uid)
+          .maybeSingle();
+        if (!aktif || !data?.avatar_url) return;
+        const url = await urlStruk(data.avatar_url);
+        if (aktif) setAvatarUrl(url);
+      } catch (e) {
+        // Foto profil bukan hal kritis: kalau gagal, huruf awal nama dipakai.
+        console.error('[DASBOR] gagal memuat foto profil', e);
+      }
+    })();
+    return () => { aktif = false; };
+  }, [profilTerbuka]);
 
   const refresh = () => {
     void Promise.allSettled([fetchProfile(), fetchWallets(), fetchTransactions()]);
@@ -154,15 +185,37 @@ export default function Dashboard() {
         <div className="page pb-32 space-y-6">
           {/* Header */}
           <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-tr from-teal-400 to-purple-500 rounded-full shadow-[0_0_15px_rgba(45,212,191,0.5)] flex items-center justify-center text-white font-bold text-lg">
-                {profile?.display_name?.charAt(0)?.toUpperCase() || 'U'}
+            {/* Avatar + nama sekarang SATU TOMBOL menuju Profil Saya.
+                Sebelumnya lingkaran ini cuma hiasan yang tidak bisa ditekan,
+                padahal itu tempat yang paling wajar dicari orang untuk
+                mengganti foto dan nama. */}
+            <button
+              type="button"
+              onClick={() => setProfilTerbuka(true)}
+              aria-label="Buka profil saya"
+              className="flex items-center gap-3 min-h-[48px] rounded-2xl pr-3 -ml-1 pl-1 active:scale-[0.97] transition-transform"
+            >
+              <div className="relative w-12 h-12 shrink-0">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt=""
+                    className="w-12 h-12 rounded-full object-cover border-2 border-white/25"
+                  />
+                ) : (
+                  <div className="w-12 h-12 bg-gradient-to-tr from-brand-400 to-accent-500 rounded-full shadow-glow-brand flex items-center justify-center text-white font-bold text-lg">
+                    {profile?.display_name?.charAt(0)?.toUpperCase() || 'U'}
+                  </div>
+                )}
+                <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-ink-900 border border-white/20 flex items-center justify-center">
+                  <Pencil size={10} className="text-brand-300" />
+                </span>
               </div>
-              <div>
-                <p className="text-white/60 text-sm font-medium">Halo,</p>
+              <div className="text-left">
+                <p className="text-white/70 text-sm font-medium">Halo,</p>
                 <h1 className="text-white font-bold text-lg">{profile?.display_name || 'Pengguna'}</h1>
               </div>
-            </div>
+            </button>
             <button
               type="button"
               onClick={refresh}
@@ -188,10 +241,13 @@ export default function Dashboard() {
 
           {/* Log Transaksi Harian (Accordion) */}
           <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-3xl p-5 shadow-xl">
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-baseline mb-1">
               <h3 className="text-white font-bold text-lg">Log Transaksi Harian</h3>
             </div>
-            
+            <p className="text-white/70 text-micro mb-4">
+              Ketuk transaksi untuk mengubah atau menghapusnya.
+            </p>
+
             <div className="space-y-3">
               {safeTransactions.length > 0 ? (
                 Object.keys(groupedTransactions).map(date => (
@@ -206,31 +262,43 @@ export default function Dashboard() {
                       />
                     </summary>
                     <div className="px-4 pb-4 space-y-3">
-                      {groupedTransactions[date].map((trx: any) => (
-                        <div key={trx.id} className="flex justify-between items-center pt-3 border-t border-white/5 first:border-0 first:pt-0">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                              trx.type === 'income' ? 'bg-teal-500/20 text-teal-400' : 
-                              trx.type === 'expense' ? 'bg-red-500/20 text-red-400' : 
-                              'bg-blue-500/20 text-blue-400'
+                      {groupedTransactions[date].map((trx: Transaction) => (
+                        // Baris jadi TOMBOL, bukan div: salah catat itu hal biasa,
+                        // dan sebelumnya tidak ada satu pun cara memperbaiki
+                        // transaksi yang sudah tersimpan.
+                        <button
+                          key={trx.id}
+                          type="button"
+                          onClick={() => setTrxDiedit(trx)}
+                          aria-label={`Ubah transaksi ${trx.title}`}
+                          className="w-full min-h-[56px] flex justify-between items-center gap-3 pt-3 border-t border-white/5 first:border-0 first:pt-0 text-left rounded-xl active:bg-white/5 transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-10 h-10 shrink-0 rounded-xl flex items-center justify-center ${
+                              trx.type === 'income' ? 'bg-brand-500/20 text-brand-300' :
+                              trx.type === 'expense' ? 'bg-danger-500/20 text-danger-400' :
+                              'bg-accent-500/20 text-accent-300'
                             }`}>
-                              {trx.type === 'income' ? <ArrowDownRight size={20} /> : 
-                               trx.type === 'expense' ? <ArrowUpRight size={20} /> : 
+                              {trx.type === 'income' ? <ArrowDownRight size={20} /> :
+                               trx.type === 'expense' ? <ArrowUpRight size={20} /> :
                                <RefreshCw size={20} />}
                             </div>
-                            <div>
-                              <p className="text-white font-medium">{trx.title}</p>
-                              <p className="text-white/70 text-xs">{trx.category || trx.type}</p>
+                            <div className="min-w-0">
+                              <p className="text-white font-medium truncate">{trx.title}</p>
+                              <p className="text-white/70 text-xs truncate">{trx.category || trx.type}</p>
                             </div>
                           </div>
-                          <p className={`font-bold ${
-                            trx.type === 'income' ? 'text-teal-400' : 
-                            trx.type === 'expense' ? 'text-red-400' : 'text-blue-400'
-                          }`}>
-                            {trx.type === 'income' ? '+' : trx.type === 'expense' ? '-' : ''}
-                            {formatIDR(trx.amount)}
-                          </p>
-                        </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <p className={`font-bold tabular-nums ${
+                              trx.type === 'income' ? 'text-brand-300' :
+                              trx.type === 'expense' ? 'text-danger-400' : 'text-accent-300'
+                            }`}>
+                              {trx.type === 'income' ? '+' : trx.type === 'expense' ? '-' : ''}
+                              {formatIDR(trx.amount)}
+                            </p>
+                            <Pencil size={13} className="text-white/40" />
+                          </div>
+                        </button>
                       ))}
                     </div>
                   </details>
@@ -242,6 +310,20 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <ProfileSheet terbuka={profilTerbuka} onTutup={() => setProfilTerbuka(false)} />
+
+      <TransactionEditor
+        transaksi={trxDiedit}
+        wallets={safeWallets}
+        onTutup={() => setTrxDiedit(null)}
+        onSelesai={() => {
+          setTrxDiedit(null);
+          // Trigger database sudah menghitung ulang saldo dompet; ambil ulang
+          // supaya angka di layar ikut menyesuaikan tanpa memuat ulang halaman.
+          refresh();
+        }}
+      />
     </motion.div>
   );
 }

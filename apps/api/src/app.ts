@@ -44,15 +44,24 @@ export function buatApp() {
 
   app.use(express.json({ limit: '1mb' }));
 
-  const health = (_req: express.Request, res: express.Response) => {
+  const health = (req: express.Request, res: express.Response) => {
     res.json({
       status: 'ok',
       message: 'DuitKita API is running',
       lingkungan: process.env.VERCEL ? 'vercel' : 'lokal',
+      // Jalur yang benar-benar dilihat Express setelah rewrite. Dicantumkan
+      // karena kegagalan sebelumnya justru terjadi di lapisan routing Vercel,
+      // dan tanpa angka ini penyebabnya hanya bisa ditebak-tebak.
+      jalurTerbaca: req.originalUrl,
     });
   };
   app.get('/health', health);
   app.get('/api/health', health); // di Vercel semua lalu lintas fungsi diawali /api
+
+  /** Uji rute bersarang: membuktikan jalur multi-segmen benar-benar sampai. */
+  app.get('/api/diag/rute/:a/:b', (req, res) => {
+    res.json({ ok: true, jalurTerbaca: req.originalUrl, a: req.params.a, b: req.params.b });
+  });
 
   // Router-router ini SEBELUMNYA TIDAK PERNAH DIPASANG — berkasnya ada tapi tidak
   // pernah tersambung, jadi /api/scan/receipt selalu membalas 404.

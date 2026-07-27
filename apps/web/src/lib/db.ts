@@ -75,9 +75,24 @@ export async function safeMutateOne<T>(
   return rows[0];
 }
 
-/** Mengambil pesan yang layak ditampilkan dari error apa pun. */
+/**
+ * Mengambil pesan yang layak ditampilkan dari error apa pun.
+ *
+ * Nilai kembaliannya DIJAMIN teks. Objek galat Supabase berbentuk
+ * {code, message, details, hint} dan bila objek seperti itu lolos ke JSX,
+ * React langsung melempar error #31 dan menjatuhkan seluruh halaman.
+ */
 export function pesanError(e: unknown, fallback = 'Terjadi kesalahan'): string {
   if (e instanceof DbError) return e.message;
   if (e instanceof Error && e.message) return e.message;
+
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>;
+    for (const kunci of ['message', 'error_description', 'error', 'msg', 'detail']) {
+      const isi = o[kunci];
+      if (typeof isi === 'string' && isi.trim()) return isi;
+    }
+  }
+  if (typeof e === 'string' && e.trim()) return e;
   return fallback;
 }

@@ -426,52 +426,65 @@ export default function Add() {
         {isCameraOpen && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] bg-ink-950"
+            // KOLOM FLEX, bukan lapisan mengambang dengan jarak dipatok angka.
+            // Versi lama menaruh bingkai pemindai di tengah layar dan tombol di
+            // "bottom-40" — dua-duanya angka mati, sehingga pada tinggi layar
+            // tertentu teks "Arahkan struk" tertimpa tombol rana. Dengan kolom
+            // flex, area pemindai dan baris tombol saling membagi ruang, jadi
+            // bertabrakan menjadi mustahil di ukuran layar mana pun.
+            className="fixed inset-0 z-[70] bg-ink-950 flex flex-col"
           >
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              className="absolute inset-0 w-full h-full object-cover z-10"
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
             />
             <canvas ref={canvasRef} className="hidden" />
-            
-            {/* 3D Scanner Overlay */}
-            <div className="absolute inset-0 flex items-center justify-center z-20">
-            <div className="relative w-64 h-80">
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-teal-400"></div>
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-teal-400"></div>
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-teal-400"></div>
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-teal-400"></div>
-              <motion.div 
-                animate={{ top: ['0%', '100%', '0%'] }} 
-                transition={{ repeat: Infinity, duration: 2.5, ease: "linear" }}
-                className="absolute left-0 right-0 h-1 bg-teal-400 shadow-[0_0_20px_#2dd4bf] opacity-80"
-              />
-              <p className="absolute -bottom-12 w-full text-center text-teal-400 font-medium animate-pulse drop-shadow-md bg-black/30 rounded-full py-1">Arahkan struk ke kotak</p>
-            </div>
+
+            {/* Peredup supaya bingkai dan tombol tetap terbaca di atas gambar terang */}
+            <div className="absolute inset-0 bg-gradient-to-b from-ink-950/50 via-transparent to-ink-950/80" />
+
+            {/* AREA PEMINDAI — mengisi sisa ruang yang ada */}
+            <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center gap-5 px-6 pt-[calc(1rem+env(safe-area-inset-top,0px))]">
+              <div className="relative w-[min(16rem,70vw)] aspect-[3/4] max-h-full">
+                <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-brand-300 rounded-tl-lg" />
+                <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-brand-300 rounded-tr-lg" />
+                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-brand-300 rounded-bl-lg" />
+                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-brand-300 rounded-br-lg" />
+                <motion.div
+                  // y (transform), bukan top: menganimasikan `top` memaksa
+                  // browser menata ulang halaman 60x per detik dan itulah salah
+                  // satu sumber patah-patah saat kamera terbuka di ponsel.
+                  initial={{ y: 0 }}
+                  animate={{ y: ['0%', '1900%', '0%'] }}
+                  transition={{ repeat: Infinity, duration: 2.8, ease: 'linear' }}
+                  className="absolute left-0 right-0 top-0 h-1 bg-brand-300 shadow-[0_0_20px_#5eead4] opacity-90"
+                />
+              </div>
+
+              <p className="text-brand-200 font-semibold text-sm text-center bg-ink-950/60 rounded-full px-4 py-2 backdrop-blur-sm">
+                Arahkan struk ke dalam kotak
+              </p>
             </div>
 
-            {/* Kontrol diangkat ke bottom-40 (160px) + ruang aman ponsel.
-                Dulu posisinya bottom-0 dengan z-index sama persis dengan navbar,
-                dan karena navbar digambar belakangan, tombol rana tertimbun
-                di bawah tombol "+". Sekarang navbar ada di z-40, overlay ini
-                z-[70], jadi mustahil bertabrakan lagi. */}
-            <div className="absolute bottom-40 left-0 right-0 z-[75] flex justify-center items-center gap-6 pb-[env(safe-area-inset-bottom,0px)]">
+            {/* BARIS TOMBOL — punya ruangnya sendiri, tidak menumpuk apa pun */}
+            <div className="relative shrink-0 flex justify-center items-center gap-8 px-6 pt-4 pb-[calc(2rem+env(safe-area-inset-bottom,0px))]">
               <button
                 type="button" onClick={closeCamera} aria-label="Tutup kamera"
-                className="w-14 h-14 inline-flex items-center justify-center bg-danger-500/20 rounded-full text-danger-400 border border-danger-500/40 backdrop-blur-md active:scale-95 transition-transform"
+                className="w-14 h-14 shrink-0 inline-flex items-center justify-center bg-danger-500/25 rounded-full text-danger-400 border border-danger-500/50 backdrop-blur-md active:scale-90 transition-transform"
               >
                 <X size={24} />
               </button>
               <button
                 type="button" onClick={capturePhoto} aria-label="Ambil foto struk"
-                className="w-20 h-20 inline-flex items-center justify-center bg-brand-400 rounded-full text-ink-900 border-4 border-white/60 hover:bg-brand-300 active:scale-95 transition-all shadow-glow-brand"
+                className="w-20 h-20 shrink-0 inline-flex items-center justify-center bg-brand-400 rounded-full text-ink-900 border-4 border-white/70 active:scale-90 transition-transform shadow-glow-brand"
               >
                 <Aperture size={32} />
               </button>
               <label
-                className="w-14 h-14 inline-flex items-center justify-center bg-white/20 rounded-full text-white backdrop-blur-md cursor-pointer border border-white/20 active:scale-95 transition-transform"
+                className="w-14 h-14 shrink-0 inline-flex items-center justify-center bg-white/20 rounded-full text-white backdrop-blur-md cursor-pointer border border-white/25 active:scale-90 transition-transform"
                 aria-label="Pilih gambar dari galeri"
               >
                 <input type="file" accept="image/*" className="hidden" onChange={handleManualUpload} />

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
   User, Wallet, Tags, Shield, LogOut, ChevronRight, X, Plus, Trash2, Save, Download,
-  ArrowLeftRight, Wallet2, Repeat, BarChart3, Receipt, SlidersHorizontal,
+  ArrowLeftRight, Wallet2, Repeat, BarChart3, Receipt, SlidersHorizontal, ShieldCheck,
   Settings as SettingsIcon,
 } from 'lucide-react';
 import { usePWAInstall } from '../lib/usePWAInstall';
@@ -16,7 +16,8 @@ import toast from 'react-hot-toast';
 
 export default function Settings() {
   const { wallets, setWallets, clearStore } = useFinanceStore();
-  const { signOut } = useAuth();
+  const { signOut, profile: profilAuth } = useAuth();
+  const peran = profilAuth?.role;
   const { status: statusPasang, pasang: pasangAplikasi } = usePWAInstall();
   const [profile, setProfile] = useState<any>(null);
   const [activeModal, setActiveModal] = useState<string | null>(null);
@@ -299,6 +300,31 @@ export default function Settings() {
         </motion.div>
         <h2 className="text-2xl font-bold text-white text-center tracking-tight">Pengaturan</h2>
       </div>
+
+      {/* Pintu masuk panel admin.
+          Admin sekarang mendarat di beranda pengguna (supaya pemilik aplikasi
+          bisa memakai fiturnya sendiri), jadi harus ada jalan yang jelas menuju
+          panel admin — sebelumnya tidak ada satu pun tombol dan panelnya cuma
+          bisa dicapai dengan mengetik alamat /admin secara manual. */}
+      {peran === 'admin' && (
+        <Link
+          to="/admin"
+          className="block mb-6 rounded-3xl p-4 border border-brand-400/40 bg-gradient-to-r from-brand-500/20 to-accent-600/20 active:scale-[0.98] transition-transform"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-400 to-accent-600 flex items-center justify-center shadow-glow-brand shrink-0">
+              <ShieldCheck size={22} className="text-white" />
+            </div>
+            <div className="text-left min-w-0 flex-1">
+              <h3 className="font-bold text-sm">Panel Super Admin</h3>
+              <p className="text-white/75 text-micro mt-0.5">
+                Kelola pengguna, pantau penyimpanan, lihat data tiap akun.
+              </p>
+            </div>
+            <ChevronRight className="text-brand-300 shrink-0" size={20} />
+          </div>
+        </Link>
+      )}
 
       {/* Pintu masuk fitur di ponsel. Dock bawah hanya muat lima tujuan,
           sedangkan aplikasi punya sebelas halaman — sisanya dikumpulkan di sini

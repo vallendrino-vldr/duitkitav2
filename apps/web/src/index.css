@@ -142,6 +142,33 @@ input[type="number"] { -moz-appearance: textfield; }
   }
 }
 
+/* === KEHALUSAN DI PERANGKAT SENTUH ===
+   backdrop-filter memaksa browser membaca ulang piksel di belakang elemen.
+   Saat puluhan kartu kaca digulir bersamaan di ponsel, biayanya menumpuk dan
+   itulah yang terasa sebagai "patah-patah". Radius blur diperkecil (tampilan
+   kaca tetap terbaca) dan lapisan kaca dipromosikan jadi lapisan tersendiri
+   supaya menggulir hanya menggeser lapisan, bukan menggambar ulang isinya. */
+@media (hover: none) and (pointer: coarse) {
+  .glass {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .glass-strong {
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .glass, .glass-strong {
+    transform: translateZ(0);
+  }
+}
+
+/* Wadah gulir memakai momentum khas iOS dan tidak menarik elemen tetangga
+   ikut menggulir saat isinya sudah mentok. */
+.no-scrollbar, .thin-scrollbar {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
 /* === HORMATI PENGATURAN "KURANGI GERAK" ===
    Sebagian orang pusing/mual melihat animasi terus-menerus. Kalau sistemnya
    minta gerak dikurangi, semua animasi berhenti — bukan sekadar dipercepat. */

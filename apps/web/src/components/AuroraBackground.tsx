@@ -1,66 +1,91 @@
+import { useKualitasVisual } from '../lib/useKualitasVisual';
+
 /**
- * Latar belakang aplikasi: gradien ASMR, cahaya aurora, objek 3D idle,
- * partikel kilau, dan cincin cahaya berputar.
+ * Latar aplikasi: aurora, objek 3D idle, kilau, dan partikel.
  *
- * Semuanya dibuat dengan CSS transform 3D asli — tanpa pustaka 3D. WebGL akan
- * menambah ratusan KB dan menyalakan GPU terus-menerus; untuk hiasan latar,
- * biayanya tidak sepadan. Setiap animasi di sini hanya menyentuh `transform`
- * dan `opacity` sehingga diproses GPU dan tidak memaksa browser menghitung
- * ulang tata letak halaman tiap frame.
+ * KEPUTUSAN PENTING — kenapa radial-gradient, bukan filter blur:
+ * Versi sebelumnya memakai tiga lingkaran ber-`filter: blur(90px)` YANG IKUT
+ * BERGERAK. Blur sebesar itu harus dihitung ulang GPU setiap frame, dan pada
+ * ponsel biayanya jauh melebihi anggaran 16 milidetik per frame — itulah sumber
+ * utama rasa patah-patah saat menggulir. Radial-gradient menghasilkan tampilan
+ * lembut yang praktis sama, tetapi digambar sekali sebagai tekstur dan setelah
+ * itu hanya digeser. Hasilnya mulus tanpa mengurangi kemewahan tampilan.
  *
- * Kelas dengan awalan `ambient-` sengaja dikecualikan dari aturan
- * prefers-reduced-motion (lihat index.css): geraknya sangat lambat dan murni
- * dekoratif, sementara seluruh animasi fungsional tetap mematuhi setelan itu.
+ * Semua animasi hanya menyentuh transform dan opacity, sehingga ditangani
+ * GPU dan tidak pernah memaksa penataan ulang halaman.
+ *
+ * Kelas `ambient` menandai hiasan yang tetap bergerak walau sistem meminta
+ * "kurangi gerak" (lihat index.css) — geraknya lambat dan tidak pernah
+ * menuntut perhatian, sementara animasi fungsional tetap patuh.
  */
 
-const JUMLAH_CINCIN = 9;
-
-/** Posisi kilau ditulis tetap, bukan acak, supaya tidak berubah tiap render. */
 const KILAU = [
-  { l: '12%', t: '18%', d: '0s',   s: 10 },
+  { l: '12%', t: '18%', d: '0s', s: 10 },
   { l: '82%', t: '12%', d: '1.2s', s: 7 },
   { l: '68%', t: '32%', d: '2.4s', s: 12 },
   { l: '22%', t: '62%', d: '0.6s', s: 8 },
   { l: '88%', t: '58%', d: '3.1s', s: 9 },
-  { l: '45%', t: '8%',  d: '1.9s', s: 6 },
-  { l: '8%',  t: '42%', d: '2.8s', s: 7 },
+  { l: '45%', t: '8%', d: '1.9s', s: 6 },
+  { l: '8%', t: '42%', d: '2.8s', s: 7 },
   { l: '58%', t: '78%', d: '0.9s', s: 10 },
 ];
 
-/** Partikel debu cahaya yang naik pelan. */
 const PARTIKEL = [
-  { l: '10%', d: '0s',   dur: '15s', s: 3 },
-  { l: '24%', d: '-4s',  dur: '18s', s: 2 },
-  { l: '38%', d: '-9s',  dur: '13s', s: 4 },
-  { l: '52%', d: '-2s',  dur: '20s', s: 2 },
+  { l: '10%', d: '0s', dur: '15s', s: 3 },
+  { l: '24%', d: '-4s', dur: '18s', s: 2 },
+  { l: '38%', d: '-9s', dur: '13s', s: 4 },
+  { l: '52%', d: '-2s', dur: '20s', s: 2 },
   { l: '66%', d: '-11s', dur: '16s', s: 3 },
-  { l: '78%', d: '-6s',  dur: '14s', s: 2 },
+  { l: '78%', d: '-6s', dur: '14s', s: 2 },
   { l: '92%', d: '-13s', dur: '19s', s: 3 },
 ];
 
+/** Lingkaran cahaya lembut tanpa filter blur — hanya gradien. */
+function Aurora({
+  kelas, warna, delay,
+}: { kelas: string; warna: string; delay?: string }) {
+  return (
+    <div
+      className={`ambient absolute rounded-full animate-aurora-drift ${kelas}`}
+      style={{
+        background: `radial-gradient(circle at 50% 50%, ${warna} 0%, transparent 68%)`,
+        animationDelay: delay,
+      }}
+    />
+  );
+}
+
 export default function AuroraBackground() {
+  const kualitas = useKualitasVisual();
+  const hemat = kualitas === 'hemat';
+
+  const jumlahCincin = hemat ? 5 : 9;
+  const kilau = hemat ? KILAU.slice(0, 4) : KILAU;
+  const partikel = hemat ? PARTIKEL.slice(0, 3) : PARTIKEL;
+
   return (
     <div
       aria-hidden="true"
       className="fixed inset-0 z-[-1] overflow-hidden pointer-events-none bg-asmr ambient-bg"
     >
-      {/* Cahaya aurora yang menghanyut pelan */}
-      <div className="ambient absolute -top-24 -left-20 w-[22rem] h-[22rem] rounded-full bg-brand-500/25 blur-[90px] animate-aurora-drift" />
-      <div className="ambient absolute top-1/3 -right-24 w-[24rem] h-[24rem] rounded-full bg-accent-600/25 blur-[100px] animate-aurora-drift" style={{ animationDelay: '-7s' }} />
-      <div className="ambient absolute -bottom-28 left-1/4 w-[20rem] h-[20rem] rounded-full bg-brand-700/25 blur-[90px] animate-aurora-drift" style={{ animationDelay: '-14s' }} />
+      <Aurora kelas="-top-32 -left-28 w-[30rem] h-[30rem]" warna="rgba(20,184,166,0.45)" />
+      <Aurora kelas="top-1/4 -right-32 w-[32rem] h-[32rem]" warna="rgba(147,51,234,0.42)" delay="-7s" />
+      <Aurora kelas="-bottom-36 left-1/5 w-[28rem] h-[28rem]" warna="rgba(15,118,110,0.42)" delay="-14s" />
 
-      {/* Cincin cahaya besar yang berputar di belakang objek utama */}
-      <div className="absolute left-1/2 top-[34%] -translate-x-1/2 -translate-y-1/2 w-[34rem] h-[34rem] opacity-40">
-        <div
-          className="ambient w-full h-full rounded-full animate-ring-sweep"
-          style={{
-            background:
-              'conic-gradient(from 0deg, transparent 0deg, rgba(45,212,191,0.35) 60deg, transparent 130deg, rgba(168,85,247,0.28) 220deg, transparent 300deg)',
-            maskImage: 'radial-gradient(circle, transparent 56%, black 60%, black 66%, transparent 70%)',
-            WebkitMaskImage: 'radial-gradient(circle, transparent 56%, black 60%, black 66%, transparent 70%)',
-          }}
-        />
-      </div>
+      {/* Cincin cahaya berputar. Masking cukup mahal, jadi hanya di perangkat kuat. */}
+      {!hemat && (
+        <div className="absolute left-1/2 top-[34%] -translate-x-1/2 -translate-y-1/2 w-[34rem] h-[34rem] opacity-40">
+          <div
+            className="ambient w-full h-full rounded-full animate-ring-sweep"
+            style={{
+              background:
+                'conic-gradient(from 0deg, transparent 0deg, rgba(45,212,191,0.35) 60deg, transparent 130deg, rgba(168,85,247,0.28) 220deg, transparent 300deg)',
+              maskImage: 'radial-gradient(circle, transparent 56%, black 60%, black 66%, transparent 70%)',
+              WebkitMaskImage: 'radial-gradient(circle, transparent 56%, black 60%, black 66%, transparent 70%)',
+            }}
+          />
+        </div>
+      )}
 
       {/* Objek 3D idle: bola rangka berputar sambil melayang */}
       <div
@@ -69,76 +94,75 @@ export default function AuroraBackground() {
       >
         <div className="ambient animate-coin-float">
           <div
-            className="ambient relative w-[26rem] h-[26rem] animate-coin-spin"
+            className="ambient relative w-[min(26rem,88vw)] aspect-square animate-coin-spin"
             style={{ transformStyle: 'preserve-3d' }}
           >
-            {Array.from({ length: JUMLAH_CINCIN }).map((_, i) => (
+            {Array.from({ length: jumlahCincin }).map((_, i) => (
               <div
                 key={i}
                 className="absolute inset-0 rounded-full border"
                 style={{
-                  transform: `rotateY(${(180 / JUMLAH_CINCIN) * i}deg)`,
+                  transform: `rotateY(${(180 / jumlahCincin) * i}deg)`,
                   borderColor:
                     i % 3 === 0
                       ? 'rgba(94, 234, 212, 0.55)'
                       : i % 3 === 1
                         ? 'rgba(192, 132, 252, 0.42)'
                         : 'rgba(255, 255, 255, 0.20)',
-                  boxShadow: i % 3 === 0 ? '0 0 30px rgba(45, 212, 191, 0.30)' : undefined,
+                  // Bayangan bercahaya per cincin mahal saat berputar di ruang 3D;
+                  // di perangkat hemat, warna garis saja sudah cukup meyakinkan.
+                  boxShadow: !hemat && i % 3 === 0 ? '0 0 30px rgba(45, 212, 191, 0.30)' : undefined,
                 }}
               />
             ))}
-            <div className="absolute inset-[38%] rounded-full bg-brand-400/25 blur-2xl" />
-            <div className="absolute inset-[45%] rounded-full bg-white/70 blur-md" />
+            <div
+              className="absolute inset-[38%] rounded-full"
+              style={{ background: 'radial-gradient(circle, rgba(45,212,191,0.55) 0%, transparent 70%)' }}
+            />
+            <div
+              className="absolute inset-[45%] rounded-full"
+              style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.85) 0%, transparent 72%)' }}
+            />
           </div>
         </div>
       </div>
 
-      {/* Kilau berkelip — bentuk bintang empat sudut, bukan titik bulat biasa */}
-      {KILAU.map((k, i) => (
+      {kilau.map((k, i) => (
         <div
           key={`k${i}`}
           className="ambient absolute animate-twinkle"
           style={{
-            left: k.l,
-            top: k.t,
-            width: k.s,
-            height: k.s,
-            animationDelay: k.d,
+            left: k.l, top: k.t, width: k.s, height: k.s, animationDelay: k.d,
             background: 'radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(94,234,212,0.6) 40%, transparent 70%)',
             clipPath: 'polygon(50% 0%, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0% 50%, 39% 39%)',
           }}
         />
       ))}
 
-      {/* Debu cahaya yang melayang naik */}
-      {PARTIKEL.map((p, i) => (
+      {partikel.map((p, i) => (
         <div
           key={`p${i}`}
           className="ambient absolute bottom-0 rounded-full animate-float-up"
           style={{
-            left: p.l,
-            width: p.s,
-            height: p.s,
-            animationDelay: p.d,
-            animationDuration: p.dur,
+            left: p.l, width: p.s, height: p.s,
+            animationDelay: p.d, animationDuration: p.dur,
             background: 'rgba(255,255,255,0.85)',
             boxShadow: '0 0 8px rgba(94,234,212,0.9)',
           }}
         />
       ))}
 
-      {/* Butiran halus: menghilangkan efek "pita" pada gradien besar dan memberi
-          kesan bertekstur, bukan warna datar seperti aplikasi murah. */}
+      {/* Butiran halus menghilangkan efek pita pada gradien besar. Mode pencampuran
+          warna (mix-blend) memaksa GPU membaca ulang seluruh layar tiap frame,
+          jadi di perangkat hemat butirannya ditumpuk biasa dengan opasitas rendah. */}
       <div
-        className="absolute inset-0 opacity-[0.15] mix-blend-overlay"
+        className={`absolute inset-0 ${hemat ? 'opacity-[0.07]' : 'opacity-[0.15] mix-blend-overlay'}`}
         style={{
           backgroundImage:
             "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E\")",
         }}
       />
 
-      {/* Vignette: menggelapkan tepi supaya teks di atasnya tetap terbaca */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_35%,rgba(9,9,11,0.78)_100%)]" />
     </div>
   );
